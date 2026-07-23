@@ -65,20 +65,37 @@ def build_base_events(pairdf: pd.DataFrame, dates: set, thresholds=THRESHOLDS, f
         pair_start = g.minute.iloc[0]
         pair_end = g.minute.iloc[-1] + pd.Timedelta(minutes=frequency_minutes)
         for threshold in thresholds:
-            active = np.flatnonzero(abs_spreads >= threshold)
-            if not len(active):
-                continue
-            group_starts = np.flatnonzero(np.r_[True, np.diff(times[active]) > 2 * step_ns])
-            group_ends = np.r_[group_starts[1:] - 1, len(active) - 1]
-            for gs, ge in zip(group_starts, group_ends):
-                active_idx = active[gs:ge + 1]
+            # Scan the complete observed timeline.  A genuinely missing bucket
+            # may be bridged once, but an observed below-threshold bucket must
+            # end the event immediately.  Filtering to active rows first would
+            # incorrectly treat a real threshold crossing as missing data.
+            event_groups = []
+            current = []
+            statuses = []
+            for idx in range(len(g)):
+                is_active = abs_spreads[idx] >= threshold
+                if not current:
+                    if is_active:
+                        current = [idx]
+                    continue
+                delta = times[idx] - times[current[-1]]
+                if not is_active:
+                    event_groups.append(np.asarray(current, dtype=int))
+                    statuses.append("DATA_GAP_CENSORED" if delta > 2 * step_ns else "COMPLETED")
+                    current = []
+                elif delta <= 2 * step_ns:
+                    current.append(idx)
+                else:
+                    event_groups.append(np.asarray(current, dtype=int))
+                    statuses.append("DATA_GAP_CENSORED")
+                    current = [idx]
+            if current:
+                event_groups.append(np.asarray(current, dtype=int))
+                statuses.append("RIGHT_CENSORED")
+
+            for active_idx, status in zip(event_groups, statuses):
                 start_i, last_i = int(active_idx[0]), int(active_idx[-1])
                 start_t, last_t = g.minute.iloc[start_i], g.minute.iloc[last_i]
-                if last_i == len(g) - 1:
-                    status = "RIGHT_CENSORED"
-                else:
-                    next_gap = (g.minute.iloc[last_i + 1] - last_t).total_seconds() / 60
-                    status = "DATA_GAP_CENSORED" if next_gap > 2 * frequency_minutes else "COMPLETED"
 
                 peak_i = int(active_idx[np.argmax(abs_spreads[active_idx])])
                 start_row, peak_row, end_row = g.iloc[start_i], g.iloc[peak_i], g.iloc[last_i]

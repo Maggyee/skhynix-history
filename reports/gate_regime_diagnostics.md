@@ -5,9 +5,9 @@
 - Gate mark vs trade close：中位 -0.860 bps，P99 绝对值 15.948 bps，最大绝对值 71.446 bps。
 - Gate mark vs index：中位 25.279 bps，P99 绝对值 138.145 bps，最大绝对值 171.976 bps。
 - 时间连续性：分钟对齐 100.00%，最大相邻缺口 1.0 分钟；标准化后重复时间戳 0。
-- API 顺序/分页：检查 50 个缓存 candlestick 响应页，时间非升序页 0；标准化后无重复分钟，未发现游标方向或分钟桶错误证据。
+- API 顺序/分页：检查 56 个缓存 candlestick 响应页，时间非升序页 0；标准化后无重复分钟，未发现游标方向或分钟桶错误证据。
 - 零成交量分钟占比：0.02%；regime 成交量中位数 8580.50，P05 385.25（合约张数口径）。
-- 成交收盘价跳变：绝对 1m 涨跌 P95 0.3249%，P99 0.5412%，最大 2.5155%。
+- 成交收盘价跳变：绝对 1m 涨跌 P95 0.3248%，P99 0.5410%，最大 2.5155%。
 - Metadata：contract_multiplier=0.001，price_tick=0.1，quantity_step=1，quote=USDT，collateral=USDT。
 - 最大 Gate 跨所偏离：gate/okx，2026-07-16 19:41:00+00:00，绝对 207.648 bps。
 - 原始响应样本路径已写入 `gate_regime_raw_samples.csv`，覆盖峰值及 regime 两个边界前后各 10 分钟。

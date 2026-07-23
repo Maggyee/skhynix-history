@@ -1,7 +1,7 @@
 {
   "requested_start": "2026-06-10 05:50:00+00:00",
-  "actual_run_end": "2026-07-23 09:19:00+00:00",
-  "git_commit": "451e091b5eb929ecce0303199ea9d840570eb914",
+  "actual_run_end": "2026-07-23 09:20:53+00:00",
+  "git_commit": "5cf73902af88645f3957bceeb4ffab97bb1a6aa2",
   "python_version": "3.11.15",
   "package_versions": {
     "httpx": "0.28.1",
@@ -27,16 +27,16 @@
     "gate": "SKHYNIX_USDT",
     "hyperliquid": "xyz:SKHX"
   },
-  "raw_file_count": 4399,
+  "raw_file_count": 4413,
   "normalized_row_counts": {
     "gate_history_15m_audit": 3508,
-    "prices_1m": 590746,
-    "aligned_prices_1m": 235779,
+    "prices_1m": 590866,
+    "aligned_prices_1m": 235851,
     "funding_events": 1637,
     "instrument_metadata": 5,
     "prices_15m": 53829,
     "aligned_prices_15m": 20700,
-    "hyperliquid_history_15m_audit": 4142
+    "hyperliquid_history_15m_audit": 4143
   },
   "report_files": [
     "reports/daily_funding_pnl.csv",

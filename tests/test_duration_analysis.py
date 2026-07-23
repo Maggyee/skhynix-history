@@ -42,6 +42,14 @@ def test_one_missing_minute_stays_one_event():
     assert len(e)==1 and e.iloc[0].duration_observed_minutes==3
 
 
+def test_observed_below_threshold_minute_splits_events():
+    p=pair_df(pd.date_range("2026-07-15",periods=5,freq="min",tz="UTC"),[30,10,35,10,5])
+    e=build_base_events(p,DATES,[20])
+    assert len(e)==2
+    assert set(e.status)=={"COMPLETED"}
+    assert e.duration_observed_minutes.tolist()==[1,1]
+
+
 def test_gap_over_two_minutes_is_data_gap_censored():
     p=pair_df(["2026-07-15T00:00Z","2026-07-15T00:04Z"],[30,5])
     e=build_base_events(p,DATES,[20])
