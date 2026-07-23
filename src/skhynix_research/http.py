@@ -5,15 +5,15 @@ import httpx
 from .config import ROOT
 
 class CachedHTTP:
-    def __init__(self, exchange: str, timeout=25, attempts=5, delay=.08):
-        self.exchange, self.attempts, self.delay = exchange, attempts, delay
+    def __init__(self, exchange: str, timeout=25, attempts=5, delay=.08, archive_ndjson=False):
+        self.exchange, self.attempts, self.delay, self.archive_ndjson = exchange, attempts, delay, archive_ndjson
         self.client=httpx.Client(timeout=timeout,headers={"User-Agent":"skhynix-public-research/0.1"})
         self.dir=ROOT/"data"/"raw"/exchange; self.dir.mkdir(parents=True,exist_ok=True)
         self.log=logging.getLogger("download")
     def request(self, method, url, *, params=None, json_body=None):
         key=hashlib.sha256(json.dumps([method,url,params,json_body],sort_keys=True,default=str).encode()).hexdigest()
         path=self.dir/f"{key}.json"
-        if path.exists():
+        if path.exists() and not self.archive_ndjson:
             try:
                 cached=json.loads(path.read_text())
                 return cached.get("response",cached),str(path.relative_to(ROOT))
@@ -27,7 +27,12 @@ class CachedHTTP:
                     wait=float(r.headers.get("retry-after",min(16,2**(attempt-1))))
                     raise httpx.HTTPStatusError(f"retryable {r.status_code}; wait={wait}",request=r.request,response=r)
                 r.raise_for_status(); data=r.json()
-                path.write_text(json.dumps({"request":{"method":method,"url":url,"params":params,"json":json_body},"retrieved_at":pdnow(),"response":data},ensure_ascii=False))
+                payload={"request":{"method":method,"url":url,"params":params,"json":json_body},"retrieved_at":pdnow(),"response":data}
+                if self.archive_ndjson:
+                    path=self.dir/f"{payload['retrieved_at'][:10]}.ndjson"
+                    with path.open("a") as handle: handle.write(json.dumps(payload,ensure_ascii=False)+"\n")
+                else:
+                    path.write_text(json.dumps(payload,ensure_ascii=False))
                 return data,str(path.relative_to(ROOT))
             except Exception as e:
                 err=e; status=getattr(getattr(e,"response",None),"status_code",None)

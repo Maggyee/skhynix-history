@@ -1,5 +1,5 @@
 from __future__ import annotations
-import argparse, logging, sys
+import argparse, json, logging, sys
 from pathlib import Path
 import pandas as pd
 from .config import ROOT, load_config
@@ -8,6 +8,7 @@ from .download import discover_all, download_all
 from .reporting import analyze_all, generate_reports
 from .history_audit import audit_history_coverage
 from .fifteen_minute import run_fifteen_minute_analysis
+from .live_1m import collect_once, run_forever, build_monitor
 
 def setup():
     for p in ["data/raw","data/normalized","reports/charts","logs"]:(ROOT/p).mkdir(parents=True,exist_ok=True)
@@ -29,7 +30,16 @@ def main(argv=None):
     q=sub.add_parser("quick");q.add_argument("--start",default=load_config()["start"]);q.add_argument("--end",default="now")
     ah=sub.add_parser("audit-history");ah.add_argument("--start",default=load_config()["start"]);ah.add_argument("--end",default="now")
     m15=sub.add_parser("analysis-15m");m15.add_argument("--start",default="2026-06-10T06:00:00Z");m15.add_argument("--end",default="now")
+    live=sub.add_parser("collect-1m");live.add_argument("--forever",action="store_true");live.add_argument("--lookback-minutes",type=int,default=5);live.add_argument("--poll-seconds",type=int,default=60);live.add_argument("--grace-seconds",type=int,default=8)
+    sub.add_parser("monitor-1m")
     args=ap.parse_args(argv)
+    if args.cmd=="collect-1m":
+        if args.forever:
+            run_forever(args.lookback_minutes,args.poll_seconds,args.grace_seconds);return 0
+        runs,monitor,status=collect_once(args.lookback_minutes)
+        print(runs[["exchange","price_type","rows_received","success","error"]].to_string(index=False));print(json.dumps(status,ensure_ascii=False));return 0 if status["healthy_trade_exchanges"] else 1
+    if args.cmd=="monitor-1m":
+        monitor,status=build_monitor();print(monitor.to_string(index=False));print(json.dumps(status,ensure_ascii=False));return 0 if status["healthy"] else 1
     if args.cmd=="discover":
         m,e=discover_all();print(m[["exchange","resolved_symbol","status","listing_time","contract_type"]].to_string(index=False));return 0 if (m.status!="failed").any() else 1
     start=parse_utc(args.start); end=end_value(args.end)

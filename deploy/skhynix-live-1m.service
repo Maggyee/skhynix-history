@@ -1,0 +1,17 @@
+[Unit]
+Description=SKHYNIX five-exchange native 1m collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/nishiki/skhynix-history
+ExecStart=/home/nishiki/.local/bin/uv run skhynix-research collect-1m --forever --lookback-minutes 5 --poll-seconds 60 --grace-seconds 8
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+StandardOutput=append:/home/nishiki/skhynix-history/logs/live_1m.log
+StandardError=append:/home/nishiki/skhynix-history/logs/live_1m.log
+
+[Install]
+WantedBy=default.target

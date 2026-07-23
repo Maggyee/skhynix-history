@@ -5,5 +5,7 @@
 
 logs/
 codex-run.log
+data/live_1m/
+data/raw/live_1m/
 
 .DS_Store
