@@ -203,7 +203,9 @@ def _change(metric,pair,old,new,reason):
 def corrected_charts(global_df,funding,pairdf,gate_sum,prices,pair_bounds):
     sns.set_theme(style="whitegrid",font="WenQuanYi Zen Hei",rc={"axes.unicode_minus":False})
     plt.figure(figsize=(9,4));sns.barplot(global_df,x="exchange_set",y="coverage_percent");plt.xticks(rotation=20,ha="right");plt.ylabel("严格共同窗口覆盖率 %");_save("common_window_coverage.png","五/四/三交易所最大共同组合覆盖率")
-    plt.figure(figsize=(7,6));mat=funding.pivot(index="long_exchange",columns="short_exchange",values="theoretical_cashflow_10000usd");sns.heatmap(mat,annot=True,fmt=".2f",center=0,cmap="RdYlGn");_save("funding_common_window_matrix.png","严格联合同窗：做多行/做空列每 $10,000 资金现金流")
+    plt.figure(figsize=(8,7));mat=funding.pivot(index="long_exchange",columns="short_exchange",values="theoretical_cashflow_10000usd");sns.heatmap(mat,annot=True,fmt=".2f",center=0,cmap="RdYlGn")
+    plt.figtext(.5,.01,"警告：每个格子的持仓窗口不同，仅用于单个 Pair 内部方向比较。",ha="center",color="darkred",weight="bold")
+    _save("funding_common_window_matrix.png","各 Pair 自身联合窗口累计资金现金流（窗口不同，不可横向排名）")
     gp=pairdf[pairdf.pair.str.contains("gate")]
     plt.figure(figsize=(13,6))
     maxrow=gp.loc[gp.abs_spread.idxmax()]
@@ -239,9 +241,9 @@ def corrected_report(requested_start,run_end):
     post_short=gf[(gf.short_exchange=="gate")&(gf.regime=="POST_GATE_REGIME")]
     diffs=ff.merge(old[["long_exchange","short_exchange","theoretical_cashflow_10000usd"]],on=["long_exchange","short_exchange"],suffixes=("_new","_old"));diffs["change"]=diffs.theoretical_cashflow_10000usd_new-diffs.theoretical_cashflow_10000usd_old;largest=diffs.reindex(diffs.change.abs().sort_values(ascending=False).index).head(3)
     diag_short=f"Gate mark–trade 绝对差 P99={mm.quantile(.99):.2f} bps，而 mark–index P99={mi.quantile(.99):.2f} bps；分钟连续、无重复、零量极少。证据更偏向 Gate 指数/标记口径及自身价格发现 regime，而非时间戳或分页错误。"
-    summary=f"""# SKHYNIX 永续历史研究执行摘要（严格共同窗口修正版）
+    summary=f"""# RECENT_1M_MICROSTRUCTURE_ANALYSIS — SKHYNIX 永续近期微观结构研究
 
-**截止 UTC：{run_end}**。所有主结果使用左闭右开严格共同窗口；旧非同窗榜仅作 `NOT_COMPARABLE` 审计。
+**截止 UTC：{run_end}**。本报告仅用于近期尖峰、分钟事件持续时间与局部 regime；Gate 1m 从 2026-07-16 18:34 开始，Hyperliquid 1m 从 2026-07-19 16:05 开始，五家共同窗口很短。不得用于 2026-06-10 起的五家全历史价格或资金排名；全历史主结论见 `reports_15m/EXECUTIVE_SUMMARY_15M.md`。旧非同窗榜仅作 `NOT_COMPARABLE` 审计。
 
 ## 强结论
 
@@ -279,6 +281,6 @@ def corrected_report(requested_start,run_end):
     (R/"EXECUTIVE_SUMMARY.md").write_text(summary)
     imgs=[]
     for p in sorted((R/"charts").glob("*.png")):imgs.append(f'<h2>{p.stem}</h2><img src="data:image/png;base64,{base64.b64encode(p.read_bytes()).decode()}">')
-    html_doc=f"<!doctype html><html lang='zh-CN'><meta charset='utf-8'><title>SKHYNIX 严格同窗修正版</title><style>body{{max-width:1250px;margin:30px auto;font:15px system-ui;line-height:1.55}}img{{max-width:100%}}table{{border-collapse:collapse;display:block;overflow:auto;font-size:12px}}td,th{{border:1px solid #ddd;padding:4px}}pre{{white-space:pre-wrap}}.warn{{background:#fff3cd;padding:12px}}</style><h1>SKHYNIX 严格共同窗口修正版</h1><div class='warn'>历史分钟代理，不是可执行 BBO。主资金榜已删除非同窗累计。</div><pre>{html.escape(summary)}</pre><h2>五家全局共同窗口统一排名</h2>{grank.sort_values('p95_abs_bps',ascending=False).to_html(index=False)}<h2>Pair 严格价格共同窗口</h2>{pp[pp.session=='ALL'].to_html(index=False)}<h2>严格同窗资金榜</h2>{topf.to_html(index=False)}<h2>Gate regime</h2>{gs.to_html(index=False)}{''.join(imgs)}</html>"
+    html_doc=f"<!doctype html><html lang='zh-CN'><meta charset='utf-8'><title>RECENT_1M_MICROSTRUCTURE_ANALYSIS</title><style>body{{max-width:1250px;margin:30px auto;font:15px system-ui;line-height:1.55}}img{{max-width:100%}}table{{border-collapse:collapse;display:block;overflow:auto;font-size:12px}}td,th{{border:1px solid #ddd;padding:4px}}pre{{white-space:pre-wrap}}.warn{{background:#fff3cd;padding:12px}}</style><h1>RECENT_1M_MICROSTRUCTURE_ANALYSIS</h1><div class='warn'>Gate 1m 从 2026-07-16 18:34 开始；Hyperliquid 1m 从 2026-07-19 16:05 开始。本页不用于6月10日起的五家全历史排名。</div><pre>{html.escape(summary)}</pre><h2>五家近期1m共同窗口</h2>{grank.sort_values('p95_abs_bps',ascending=False).to_html(index=False)}<h2>Pair 严格价格共同窗口</h2>{pp[pp.session=='ALL'].to_html(index=False)}<h2>各Pair自身联合窗口资金（窗口不同，不可横向排名）</h2>{topf.to_html(index=False)}<h2>Gate regime</h2>{gs.to_html(index=False)}{''.join(imgs)}</html>"
     (R/"quick_report.html").write_text(html_doc)
     return summary

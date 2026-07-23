@@ -7,6 +7,7 @@ from .calendar import parse_utc
 from .download import discover_all, download_all
 from .reporting import analyze_all, generate_reports
 from .history_audit import audit_history_coverage
+from .fifteen_minute import run_fifteen_minute_analysis
 
 def setup():
     for p in ["data/raw","data/normalized","reports/charts","logs"]:(ROOT/p).mkdir(parents=True,exist_ok=True)
@@ -27,12 +28,17 @@ def main(argv=None):
     r=sub.add_parser("report");r.add_argument("--start",default=load_config()["start"]);r.add_argument("--end",default="now")
     q=sub.add_parser("quick");q.add_argument("--start",default=load_config()["start"]);q.add_argument("--end",default="now")
     ah=sub.add_parser("audit-history");ah.add_argument("--start",default=load_config()["start"]);ah.add_argument("--end",default="now")
+    m15=sub.add_parser("analysis-15m");m15.add_argument("--start",default="2026-06-10T06:00:00Z");m15.add_argument("--end",default="now")
     args=ap.parse_args(argv)
     if args.cmd=="discover":
         m,e=discover_all();print(m[["exchange","resolved_symbol","status","listing_time","contract_type"]].to_string(index=False));return 0 if (m.status!="failed").any() else 1
     start=parse_utc(args.start); end=end_value(args.end)
     if args.cmd=="audit-history":
         print(audit_history_coverage(start,end));return 0
+    if args.cmd=="analysis-15m":
+        result=run_fifteen_minute_analysis(start,end)
+        print(f"15m common={result['price_start']} to {result['price_end']}; reports={ROOT/'reports_15m'}")
+        return 0
     if args.cmd=="download":
         p,f,e=download_all(start,end);print(f"prices={len(p):,} funding={len(f):,} errors={e}");return 0 if len(p) else 1
     if args.cmd=="analyze": analyze_all(start,end);print("analysis outputs: reports/");return 0

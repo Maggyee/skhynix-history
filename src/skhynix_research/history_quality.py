@@ -31,6 +31,8 @@ def detailed_session(ts, krx_dates=None):
     if krx_dates is None and t.tz_convert("Asia/Seoul").weekday() >= 5:
         return "KRX_HOLIDAY_OR_WEEKEND"
     minute = t.hour * 60 + t.minute
+    if minute < 350:
+        return "KRX_REGULAR_EARLIER"
     if 350 <= minute < 390:
         return "PRE_CLOSE_BASELINE"
     if 390 <= minute < 400:
@@ -39,11 +41,13 @@ def detailed_session(ts, krx_dates=None):
         return "KRX_OFFICIAL_AFTER_HOURS"
     ny = t.tz_convert("America/New_York")
     ny_minute = ny.hour * 60 + ny.minute
+    if ny.weekday() < 5 and 240 <= ny_minute < 570:
+        return "US_PREMARKET"
     if ny.weekday() < 5 and 570 <= ny_minute < 960:
         return "US_REGULAR"
     if ny.weekday() < 5 and 960 <= ny_minute < 1200:
         return "US_AFTER_HOURS"
-    return "KRX_FULLY_CLOSED_PRE_US"
+    return "BOTH_PRIMARY_MARKETS_CLOSED"
 
 
 def strategy_price_pnl(entry_spread, exit_spread, long_is_a):
@@ -337,8 +341,7 @@ def _strategy_group(ev, column):
     return ev.groupby([column, "strategy_direction"], as_index=False).agg(
         event_count=("event_id", "size"), median_combined_pnl_bps=("gross_combined_pnl_bps", "median"),
         total_funding_pnl_bps=("funding_pnl_bps", "sum"), median_holding_minutes=("holding_minutes", "median"),
-        max_mae_bps=("max_adverse_excursion_bps", "max"), convergence_probability_1h=("holding_minutes", lambda x: (x <= 60).mean()),
-        convergence_probability_4h=("holding_minutes", lambda x: (x <= 240).mean()), convergence_probability_24h=("holding_minutes", lambda x: (x <= 1440).mean()))
+        max_mae_bps=("max_adverse_excursion_bps", "max"))
 
 
 def gate_median_analysis(prices):
@@ -376,7 +379,7 @@ def coverage_updates(requested_start, run_end):
     return cov, pp
 
 
-def session_summaries(pairdf, fundev, stratev, dates):
+def session_summaries(pairdf, fundev, stratev, dates, base_events=None, convergence=None):
     p = pairdf.copy(); p["detailed_session"] = p.minute.map(lambda x: detailed_session(x, dates))
     rows = []
     for (pair, session), g in p.groupby(["pair", "detailed_session"]):
@@ -384,15 +387,16 @@ def session_summaries(pairdf, fundev, stratev, dates):
         rows.append({"pair": pair, "session": session, "count": len(g), "mean_abs_spread_bps": s.mean(), "median_abs_spread_bps": s.median(),
                      "p95_abs_spread_bps": s.quantile(.95), "p99_abs_spread_bps": s.quantile(.99), "max_abs_spread_bps": s.max()})
     ps = pd.DataFrame(rows)
-    conv = stratev[(stratev.strategy_direction == "price_convergence") & (stratev.exit_rule == "target_20bps")]
-    if len(conv):
-        extra = conv.groupby(["pair", "session"], as_index=False).agg(
-            event_count=("event_id","size"), median_duration_minutes=("holding_minutes","median"),
-            p95_duration_minutes=("holding_minutes",lambda x:x.quantile(.95)),
-            convergence_probability_1h=("holding_minutes",lambda x:(x<=60).mean()),
-            convergence_probability_4h=("holding_minutes",lambda x:(x<=240).mean()),
-            convergence_probability_24h=("holding_minutes",lambda x:(x<=1440).mean()),
-            combined_strategy_pnl=("gross_combined_pnl_bps","sum"))
+    base20 = base_events[base_events.threshold_bps==20] if base_events is not None else pd.DataFrame()
+    if len(base20):
+        extra = base20.groupby(["pair", "start_session"], as_index=False).agg(
+            event_count=("base_event_id","size"), median_duration_minutes=("duration_observed_minutes","median"),
+            p95_duration_minutes=("duration_observed_minutes",lambda x:x.quantile(.95)),
+            censored_event_count=("status",lambda x:(x!="COMPLETED").sum()))
+        extra=extra.rename(columns={"start_session":"session"})
+        for horizon,label in [(60,"1h"),(240,"4h"),(1440,"24h")]:
+            x=convergence[(convergence.group_type=="START_SESSION")&(convergence.target_bps==20)&(convergence.horizon_minutes==horizon)][["group_value","observed_rate_complete_cases"]].rename(columns={"group_value":"session","observed_rate_complete_cases":f"convergence_probability_{label}_observed"})
+            extra=extra.merge(x,on="session",how="left")
         ps=ps.merge(extra,on=["pair","session"],how="left")
     ps.to_csv(R / "session_price_summary.csv", index=False)
     if len(fundev):
@@ -400,6 +404,10 @@ def session_summaries(pairdf, fundev, stratev, dates):
     else: fs = pd.DataFrame()
     fs.to_csv(R / "session_funding_summary.csv", index=False)
     ss = _strategy_group(stratev, "session")
+    if convergence is not None and len(ss):
+        for horizon,label in [(60,"1h"),(240,"4h"),(1440,"24h")]:
+            x=convergence[(convergence.group_type=="START_SESSION")&(convergence.target_bps==20)&(convergence.horizon_minutes==horizon)][["group_value","observed_rate_complete_cases"]].rename(columns={"group_value":"session","observed_rate_complete_cases":f"convergence_probability_{label}_observed"})
+            ss=ss.merge(x,on="session",how="left")
     ss.to_csv(R / "session_strategy_summary.csv", index=False)
     return ps, fs, ss
 
@@ -446,13 +454,6 @@ def extended_charts(cov, pairdf, gateprem, daily, sensitivity, stratev, session_
     plt.figure(figsize=(12,5));
     if len(session_price): sns.barplot(session_price,x="session",y="p95_abs_spread_bps",estimator=np.median);plt.xticks(rotation=30,ha="right")
     _save("session_p95_comparison.png","各时段跨 pair 的 P95 绝对价差中位数",ylabel="bps")
-    durations=stratev[(stratev.strategy_direction=="price_convergence")&(stratev.exit_rule=="target_20bps")].copy() if len(stratev) else stratev
-    for name,xlim,log,title in [("event_duration_ecdf.png",None,False,"事件持续时间 ECDF（Gate regime 内外）"),("event_duration_log_scale.png",None,True,"事件持续时间分布（log x）"),("spread_event_duration.png",(0,240),False,"事件持续时间 0–240 分钟")]:
-        plt.figure(figsize=(9,5))
-        if len(durations): sns.ecdfplot(durations,x="holding_minutes",hue="regime") if "ecdf" in name else sns.histplot(durations,x="holding_minutes",hue="regime",element="step",fill=False)
-        if xlim: plt.xlim(*xlim)
-        if log: plt.xscale("log")
-        _save(name,title,"分钟（log轴）" if log else "分钟")
 
 
 def extended_analysis(pairdf, funding, prices, requested_start, run_end):
@@ -460,13 +461,25 @@ def extended_analysis(pairdf, funding, prices, requested_start, run_end):
     common = pd.read_csv(R / "pairwise_funding_common_window.csv", parse_dates=["joint_start","joint_end"])
     cov, _ = coverage_updates(requested_start, run_end)
     fundev, daily, sensitivity = funding_contributions(funding, common, requested_start, run_end, dates)
-    stratev, stratsum = joint_backtest(pairdf, funding, common, dates)
+    from .duration_analysis import run_duration_analysis
+    duration = run_duration_analysis(pairdf,funding,prices,requested_start,run_end)
+    stratev, stratsum = duration["scenarios"], duration["strategy_summary"]
+    _strategy_group(stratev,"session").to_csv(R/"joint_strategy_by_session.csv",index=False)
+    _strategy_group(stratev,"regime").to_csv(R/"joint_strategy_by_regime.csv",index=False)
+    stress=[]
+    for r in stratev.itertuples():
+        for leverage in [1,2,3,5]:
+            loss=r.max_single_leg_loss_percent*leverage
+            stress.append({"pair":r.pair,"event_id":r.scenario_id,"leverage":leverage,"max_single_leg_loss_percent_equity":loss,
+                           "estimated_margin_buffer_required":r.max_single_leg_loss_percent/100*leverage,
+                           "would_breach_warning_threshold":loss>=50,"warning":"simplified_leverage_stress_not_exchange_liquidation_model"})
+    pd.DataFrame(stress).to_csv(R/"leverage_stress_test.csv",index=False)
     gateprem = gate_median_analysis(prices)
     update_gate_diagnostics(prices, gateprem)
-    ps, fs, ss = session_summaries(pairdf, fundev, stratev, dates)
+    ps, fs, ss = session_summaries(pairdf, fundev, stratev, dates,duration["base_events"],duration["convergence"])
     extended_charts(cov, pairdf, gateprem, daily, sensitivity, stratev, ps)
     return {"funding_events": fundev, "funding_sensitivity": sensitivity, "strategy_events": stratev,
-            "strategy_summary": stratsum, "gate_premium": gateprem, "session_price": ps}
+            "strategy_summary": stratsum, "gate_premium": gateprem, "session_price": ps,"duration":duration}
 
 
 def update_gate_diagnostics(prices, gateprem):
@@ -527,15 +540,15 @@ def extended_report_block():
     v=gp.dropna(subset=["gate_premium_vs_market_median_bps"]);during=v[(v.timestamp>=GATE_START)&(v.timestamp<GATE_END)];post=v[v.timestamp>=GATE_END]
     sp=pd.read_csv(R/"session_price_summary.csv")
     largest=sp.groupby("session").p95_abs_spread_bps.median().idxmax()
-    conv=ev[(ev.strategy_direction=="price_convergence")&(ev.exit_rule=="target_20bps")]
-    fastest=conv.groupby("session").holding_minutes.median().sort_values().head(4)
+    convergence=pd.read_csv(R/"event_convergence_summary.csv")
+    fastest=convergence[(convergence.group_type=="START_SESSION")&(convergence.target_bps==20)&(convergence.horizon_minutes==60)].sort_values("observed_rate_complete_cases",ascending=False).head(4)
     sf=pd.read_csv(R/"session_funding_summary.csv");best_sess=sf[sf.pair=="long bitget / short okx"].nlargest(1,"funding_pnl").iloc[0]
     ic=pd.read_csv(R/"funding_interval_changes.csv")
     interval_note=[]
     for ex,g in ic.groupby("exchange"):
         vals=sorted(g.interval_hours.dropna().unique())
         interval_note.append(f"{ex}={','.join(f'{v:g}h' for v in vals)}")
-    return f"""
+    base_block = f"""
 
 ## 历史覆盖、资金贡献与可交易性补充（本轮）
 
@@ -554,10 +567,12 @@ def extended_report_block():
 
 - 价格收敛方向与仅用入场前24小时资金事件选出的方向，按8小时样本入场的一致率：一致/多数一致 {', '.join(aligned)}；冲突/多数冲突 {', '.join(conflict)}。Binance/OKX 与 Bitget/OKX 的冲突最明显。
 - Gate 相对主三所 mark 中位数：regime 内绝对 P95/P99/最大 {during.gate_premium_vs_market_median_bps.abs().quantile(.95):.2f}/{during.gate_premium_vs_market_median_bps.abs().quantile(.99):.2f}/{during.gate_premium_vs_market_median_bps.abs().max():.2f} bps；7月20日后 {post.gate_premium_vs_market_median_bps.abs().quantile(.95):.2f}/{post.gate_premium_vs_market_median_bps.abs().quantile(.99):.2f}/{post.gate_premium_vs_market_median_bps.abs().max():.2f} bps，中位有向溢价 {post.gate_premium_vs_market_median_bps.median():.2f} bps。异常大幅消退，但仍有少量20–40 bps以上残余尾部。
-- 跨 pair 的 session P95 中位数最高是 `{largest}`；回落到20 bps的成功事件中，最快的 session 中位数为 {', '.join(f'{k}={v:.1f}m' for k,v in fastest.items())}。Long Bitget/Short OKX 资金贡献最高时段为 `{best_sess.session}`（${best_sess.funding_pnl:.2f}/$10,000）。
+- 跨 pair 的 session P95 中位数最高是 `{largest}`；20 bps事件在1小时内严格回到20 bps以下的完整观测比例最高的时段为 {', '.join(f'{r.group_value}={r.observed_rate_complete_cases:.2%}' for _,r in fastest.iterrows())}；这不是Kaplan–Meier无偏概率。Long Bitget/Short OKX 资金贡献最高时段为 `{best_sess.session}`（${best_sess.funding_pnl:.2f}/$10,000）。
 
 ### 无法确认
 
 - 价格路径使用 mark/trade 分钟代理，不是历史 BBO；目标退出、止损、成本和杠杆压力均不含盘口深度、真实滑点、强平公式或成交容量。
 - Gate regime 前18小时34分钟没有官方可回补的1m数据；无法确认该段峰值和真实起点。现有数据也不足以最终区分 Gate 的可成交市场偏离与指数/休市定价口径。
 """
+    from .duration_analysis import duration_report_block
+    return base_block + duration_report_block()

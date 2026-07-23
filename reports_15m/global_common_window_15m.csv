@@ -1,0 +1,2 @@
+analysis_scope,price_15m_global_start,price_15m_global_end,duration_hours,strict_common_bar_count,price_type,intersection_rule
+ALL_FIVE_TRADE_CLOSE_15M,2026-06-10 06:00:00+00:00,2026-07-23 09:00:00+00:00,1035.0,4140,trade_close_15m,timestamp present on all five exchanges
