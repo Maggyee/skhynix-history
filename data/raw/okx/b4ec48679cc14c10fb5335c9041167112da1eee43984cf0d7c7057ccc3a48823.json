@@ -1,0 +1,1 @@
+{"request": {"method": "GET", "url": "https://www.okx.com/api/v5/public/funding-rate-history", "params": {"instId": "SKHYNIX-USDT-SWAP", "limit": 100, "after": "1781078400000"}, "json": null}, "retrieved_at": "2026-07-23T07:09:22.555052+00:00", "response": {"code": "0", "data": [], "msg": ""}}

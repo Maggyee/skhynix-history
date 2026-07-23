@@ -1,0 +1,12 @@
+start: "2026-06-10T05:50:00Z"
+symbols:
+  hyperliquid: "xyz:SKHX"
+  binance: "SKHYNIXUSDT"
+  bitget: "SKHYNIXUSDT"
+  okx: "SKHYNIX-USDT-SWAP"
+  gate: "SKHYNIX_USDT"
+http:
+  timeout_seconds: 25
+  max_attempts: 5
+  min_interval_seconds: 0.08
+

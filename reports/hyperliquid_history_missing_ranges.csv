@@ -1,0 +1,2 @@
+exchange,price_type,missing_start,missing_end,missing_minutes,reason,filled
+hyperliquid,1m_primary,2026-06-10 05:50:00+00:00,2026-07-19 16:05:00+00:00,56775,official_recent_history_retention_limit,False

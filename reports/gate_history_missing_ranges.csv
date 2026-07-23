@@ -1,0 +1,2 @@
+exchange,price_type,missing_start,missing_end,missing_minutes,reason,filled
+gate,1m_primary,2026-06-10 05:50:00+00:00,2026-07-16 18:34:00+00:00,52604,official_recent_history_retention_limit,False

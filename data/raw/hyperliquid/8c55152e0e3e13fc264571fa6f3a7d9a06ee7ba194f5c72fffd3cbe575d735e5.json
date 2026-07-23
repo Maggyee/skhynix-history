@@ -1,0 +1,1 @@
+{"request": {"method": "POST", "url": "https://api.hyperliquid.xyz/info", "params": null, "json": {"type": "fundingHistory", "coin": "xyz:SKHX", "startTime": 1784789700000, "endTime": 1784791229000}}, "retrieved_at": "2026-07-23T07:20:43.776423+00:00", "response": [{"coin": "xyz:SKHX", "fundingRate": "-0.0000048831", "premium": "-0.0003781298", "time": 1784790000055}]}

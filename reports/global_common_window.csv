@@ -1,0 +1,4 @@
+exchange_set,exchange_count,common_start,common_end,calendar_duration_hours,valid_common_minutes,coverage_percent,limiting_start_exchange,limiting_end_exchange
+binance|bitget|gate|hyperliquid|okx,5,2026-07-19 16:05:00+00:00,2026-07-23 07:04:00+00:00,86.98333333333333,5219,100.0,hyperliquid,okx
+binance|bitget|gate|okx,4,2026-07-16 18:34:00+00:00,2026-07-23 07:04:00+00:00,156.5,9390,100.0,gate,okx
+binance|bitget|okx,3,2026-06-10 05:50:00+00:00,2026-07-23 07:04:00+00:00,1033.2333333333333,61994,100.0,binance|bitget|okx,okx

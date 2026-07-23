@@ -1,0 +1,25 @@
+{
+  "retrieved_at": "2026-07-23 07:20:29+00:00",
+  "calendar": "exchange_calendars:XKRX",
+  "hyperliquid": [
+    "https://api.hyperliquid.xyz/info",
+    "https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint"
+  ],
+  "binance": [
+    "https://fapi.binance.com/fapi/v1/exchangeInfo",
+    "https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api"
+  ],
+  "bitget": [
+    "https://api.bitget.com/api/v3/market/history-candles",
+    "https://www.bitget.com/api-doc/uta/public/Get-History-Candle-Data",
+    "https://www.bitget.com/api-doc/uta/public/Get-History-Funding-Rate"
+  ],
+  "okx": [
+    "https://www.okx.com/api/v5/market/history-candles",
+    "https://www.okx.com/docs-v5/en/"
+  ],
+  "gate": [
+    "https://api.gateio.ws/api/v4/futures/usdt/candlesticks",
+    "https://www.gate.com/docs/developers/apiv4/en/futures/"
+  ]
+}

@@ -1,0 +1,21 @@
+long_exchange,short_exchange,pair,sum_funding_long,sum_funding_short,funding_pnl_per_1usd,theoretical_cashflow_10000usd,long_event_count,short_event_count,note,comparability,method
+binance,bitget,long binance / short bitget,0.08006071,0.077722,-0.002338709999999994,-23.38709999999994,156,156,仅各自上市后已取得事件的非完全同窗累计,NOT_COMPARABLE,legacy_non_common_window
+binance,gate,long binance / short gate,0.08006071,0.099385,0.019324290000000008,193.24290000000008,156,156,仅各自上市后已取得事件的非完全同窗累计,NOT_COMPARABLE,legacy_non_common_window
+binance,hyperliquid,long binance / short hyperliquid,0.08006071,0.0822165691,0.0021558591000000044,21.558591000000042,156,1035,仅各自上市后已取得事件的非完全同窗累计,NOT_COMPARABLE,legacy_non_common_window
+binance,okx,long binance / short okx,0.08006071,0.1357671031113341,0.055706393111334115,557.0639311133411,156,133,仅各自上市后已取得事件的非完全同窗累计,NOT_COMPARABLE,legacy_non_common_window
+bitget,binance,long bitget / short binance,0.077722,0.08006071,0.002338709999999994,23.38709999999994,156,156,仅各自上市后已取得事件的非完全同窗累计,NOT_COMPARABLE,legacy_non_common_window
+bitget,gate,long bitget / short gate,0.077722,0.099385,0.021663,216.63000000000002,156,156,仅各自上市后已取得事件的非完全同窗累计,NOT_COMPARABLE,legacy_non_common_window
+bitget,hyperliquid,long bitget / short hyperliquid,0.077722,0.0822165691,0.004494569099999998,44.94569099999998,156,1035,仅各自上市后已取得事件的非完全同窗累计,NOT_COMPARABLE,legacy_non_common_window
+bitget,okx,long bitget / short okx,0.077722,0.1357671031113341,0.05804510311133411,580.4510311133411,156,133,仅各自上市后已取得事件的非完全同窗累计,NOT_COMPARABLE,legacy_non_common_window
+gate,binance,long gate / short binance,0.099385,0.08006071,-0.019324290000000008,-193.24290000000008,156,156,仅各自上市后已取得事件的非完全同窗累计,NOT_COMPARABLE,legacy_non_common_window
+gate,bitget,long gate / short bitget,0.099385,0.077722,-0.021663,-216.63000000000002,156,156,仅各自上市后已取得事件的非完全同窗累计,NOT_COMPARABLE,legacy_non_common_window
+gate,hyperliquid,long gate / short hyperliquid,0.099385,0.0822165691,-0.017168430900000003,-171.68430900000004,156,1035,仅各自上市后已取得事件的非完全同窗累计,NOT_COMPARABLE,legacy_non_common_window
+gate,okx,long gate / short okx,0.099385,0.1357671031113341,0.03638210311133411,363.82103111334106,156,133,仅各自上市后已取得事件的非完全同窗累计,NOT_COMPARABLE,legacy_non_common_window
+hyperliquid,binance,long hyperliquid / short binance,0.0822165691,0.08006071,-0.0021558591000000044,-21.558591000000042,1035,156,仅各自上市后已取得事件的非完全同窗累计,NOT_COMPARABLE,legacy_non_common_window
+hyperliquid,bitget,long hyperliquid / short bitget,0.0822165691,0.077722,-0.004494569099999998,-44.94569099999998,1035,156,仅各自上市后已取得事件的非完全同窗累计,NOT_COMPARABLE,legacy_non_common_window
+hyperliquid,gate,long hyperliquid / short gate,0.0822165691,0.099385,0.017168430900000003,171.68430900000004,1035,156,仅各自上市后已取得事件的非完全同窗累计,NOT_COMPARABLE,legacy_non_common_window
+hyperliquid,okx,long hyperliquid / short okx,0.0822165691,0.1357671031113341,0.05355053401133411,535.5053401133412,1035,133,仅各自上市后已取得事件的非完全同窗累计,NOT_COMPARABLE,legacy_non_common_window
+okx,binance,long okx / short binance,0.1357671031113341,0.08006071,-0.055706393111334115,-557.0639311133411,133,156,仅各自上市后已取得事件的非完全同窗累计,NOT_COMPARABLE,legacy_non_common_window
+okx,bitget,long okx / short bitget,0.1357671031113341,0.077722,-0.05804510311133411,-580.4510311133411,133,156,仅各自上市后已取得事件的非完全同窗累计,NOT_COMPARABLE,legacy_non_common_window
+okx,gate,long okx / short gate,0.1357671031113341,0.099385,-0.03638210311133411,-363.82103111334106,133,156,仅各自上市后已取得事件的非完全同窗累计,NOT_COMPARABLE,legacy_non_common_window
+okx,hyperliquid,long okx / short hyperliquid,0.1357671031113341,0.0822165691,-0.05355053401133411,-535.5053401133412,133,1035,仅各自上市后已取得事件的非完全同窗累计,NOT_COMPARABLE,legacy_non_common_window
