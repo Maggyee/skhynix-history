@@ -1,0 +1,1 @@
+{"request": {"method": "GET", "url": "https://api.gateio.ws/api/v4/futures/usdt/candlesticks", "params": {"contract": "index_SKHYNIX_USDT", "from": 1784797680, "to": 1784797733, "interval": "1m"}, "json": null}, "retrieved_at": "2026-07-23T09:09:08.909272+00:00", "response": [{"o": "1319.58", "v": 0, "t": 1784797680, "c": "1318.86", "l": "1318.86", "h": "1319.81", "sum": "0"}]}

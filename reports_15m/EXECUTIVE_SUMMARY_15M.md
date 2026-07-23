@@ -1,0 +1,30 @@
+# SKHYNIX 五家统一窗口研究（15m 全历史主分析）
+
+口径分为 `FUNDING_ONLY_GLOBAL_WINDOW`、`PRICE_FUNDING_15M_GLOBAL_WINDOW` 与 `RECENT_1M_MICROSTRUCTURE_ANALYSIS`。五家主价格榜统一使用 `ALL_FIVE_TRADE_CLOSE_15M`；`MARK_AVAILABLE_SUBSET_15M` 单列且不混榜。
+
+## 直接回答
+
+1. 五家统一资金窗口：`[2026-06-10 09:00:00+00:00, 2026-07-23 00:00:00+00:00)`，窗口 1023.00 小时；入场时刻的结算事件排除，只计 `start < funding_time < end` 的真实事件。
+2. 事件数：binance=152; bitget=153; gate=152; hyperliquid=1023; okx=131；缺失检查：binance=OK(无警告); bitget=OK(无警告); gate=OK(无警告); hyperliquid=OK(无警告); okx=OK(无警告)。
+3. 统一资金窗口前三：long binance/short okx $597.21; long bitget/short okx $586.34; long hyperliquid/short okx $523.79。
+4. 原 long Bitget/short OKX `$578.88` 在统一资金窗口变为 **$586.34**。
+5. 原 long Bitget/short Gate `$90.48` 在统一资金窗口变为 **$193.22**。
+6. 排名变化主要来自旧矩阵每个 pair 的价格+资金联合窗口长度不同，而不是同一窗口内对费率做了重采样；新矩阵没有把事件摊到小时或15分钟。
+7. 五家原生15分钟成交收盘价严格共同窗口：`[2026-06-10 06:00:00+00:00, 2026-07-23 09:00:00+00:00)`，共同闭合桶 4,140 个。
+8. 15m trade-close P95 前三：gate/hyperliquid 248.24 bps; gate/okx 220.08 bps; binance/gate 203.17 bps。P99 前三：gate/hyperliquid 333.09 bps; gate/okx 281.44 bps; binance/gate 242.40 bps。
+9. 15m 价格+资金联合策略窗口的成本结果：
+- 20 bps：3516 个 pair-event，正收益 1175，合计净值 7469.37 bps。
+- 40 bps：3516 个 pair-event，正收益 423，合计净值 -62850.63 bps。
+- 80 bps：3516 个 pair-event，正收益 129，合计净值 -203490.63 bps。
+10. Gate 在 7月16日前已有原生15m数据；相关组合此前绝对价差 P95/P99/最大为 222.58/280.33/449.76 bps，因此可直接检查异常溢价是否早已存在。
+11. Hyperliquid 在7月19日前已有原生15m trade 数据；相对其他交易所的有向价差中位/P95/P99为 44.64/199.74/260.23 bps（符号随 pair 字母顺序，精确组合见 CSV）。
+12. 20/40/80 bps 成本结果见第9项和 `joint_strategy_summary_15m.csv`；资金只在真实结算时记账。
+13. 仅1m近期窗口成立的结论：秒近似尖峰形态、1–14分钟持续时间和局部微观 regime。Gate 1m 从 2026-07-16 18:34 开始，Hyperliquid 1m 从 2026-07-19 16:05 开始，不能用于6月10日起的五家排名。
+14. 15m完整历史仍成立的结论：上述 P95/P99 排名、Gate/Hyperliquid 在各自1m起点之前的价格层级，以及统一15m联合策略成本敏感性。15m事件持续时间只能按15分钟桶解释。
+
+## 方法与限制
+
+- 原生15m接口响应按请求哈希缓存；没有从1m拼接、没有上采样为1m、没有未来填充；末根未闭合K线被排除。
+- 严格事件遇到缺失15m桶即断开；`ALLOW_ONE_MISSING_15M_BAR` 是单列敏感性分析。
+- 价格是成交K线收盘，不是历史BBO；联合策略不含盘口深度、实际滑点、容量、排队和强平规则。
+- 资金统一窗口为 `[2026-06-10 09:00:00+00:00, 2026-07-23 00:00:00+00:00)` 的保守干净UTC边界；事件边界采用严格入场后、离场前计数。

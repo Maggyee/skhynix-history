@@ -1,0 +1,6 @@
+analysis_scope,exchange,price_type,first_open_time,last_open_time,row_count,expected_count,coverage_percent,native_interval,strict_common_bar_count,warnings
+PRICE_FUNDING_15M_GLOBAL_WINDOW,binance,trade_close_15m,2026-06-10 06:00:00+00:00,2026-07-23 09:00:00+00:00,4141,4141,100.0,15m,4140,
+PRICE_FUNDING_15M_GLOBAL_WINDOW,bitget,trade_close_15m,2026-06-10 06:00:00+00:00,2026-07-23 08:45:00+00:00,4140,4140,100.0,15m,4140,
+PRICE_FUNDING_15M_GLOBAL_WINDOW,gate,trade_close_15m,2026-06-10 06:00:00+00:00,2026-07-23 09:00:00+00:00,4141,4141,100.0,15m,4140,
+PRICE_FUNDING_15M_GLOBAL_WINDOW,hyperliquid,trade_close_15m,2026-06-10 06:00:00+00:00,2026-07-23 09:00:00+00:00,4141,4141,100.0,15m,4140,
+PRICE_FUNDING_15M_GLOBAL_WINDOW,okx,trade_close_15m,2026-06-10 06:00:00+00:00,2026-07-23 08:45:00+00:00,4140,4140,100.0,15m,4140,

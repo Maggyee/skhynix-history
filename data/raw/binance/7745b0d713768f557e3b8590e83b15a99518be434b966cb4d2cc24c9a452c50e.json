@@ -1,0 +1,1 @@
+{"request": {"method": "GET", "url": "https://fapi.binance.com/fapi/v1/fundingRate", "params": {"symbol": "SKHYNIXUSDT", "startTime": 1784797680000, "endTime": 1784797733000, "limit": 1000}, "json": null}, "retrieved_at": "2026-07-23T09:09:07.263280+00:00", "response": []}

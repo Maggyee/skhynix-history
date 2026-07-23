@@ -191,9 +191,7 @@ def make_charts(cov,ps,agg,fs,pairdf,evdf):
             g=pairdf[pairdf.pair==pair].sort_values("minute");q=gap_broken(g.minute,g.spread);plt.plot(q.time,q.value,label=pair,linewidth=.7)
         plt.legend();plt.ylabel("对称价差 bps");plt.xlabel("UTC 时间")
     _savefig("top_3_pair_spread_timeseries.png","Gate 相关高价差组合时序（mark 优先/成交收盘代理；缺口不连接）")
-    plt.figure(figsize=(9,4))
-    if len(evdf):sns.histplot(evdf[evdf.threshold_bps==20],x="duration_minutes",bins=40)
-    plt.xlabel("持续分钟");_savefig("spread_event_duration.png","绝对价差超过 20 bps 的事件持续时间")
+    # Duration charts are generated from unique base events in duration_analysis.
     plt.figure(figsize=(11,4))
     if len(ps):
         q=ps[ps.session.isin(["PRE_CLOSE_BASELINE","AFTER_CLOSE_ALL"])];sns.barplot(q,x="pair",y="p95_abs_bps",hue="session");plt.xticks(rotation=35,ha="right")
