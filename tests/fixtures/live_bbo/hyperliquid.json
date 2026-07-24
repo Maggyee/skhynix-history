@@ -1,0 +1,1 @@
+{"subscription_ack":{"channel":"subscriptionResponse","data":{"method":"subscribe"}},"heartbeat":{"channel":"pong"},"bbo":{"channel":"l2Book","data":{"time":1770000000000,"levels":[[{"px":"100","sz":"2"}],[{"px":"101","sz":"3"}]]}},"metadata":[{"universe":[{"name":"xyz:SKHX","szDecimals":2}]},[]]}

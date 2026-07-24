@@ -1,0 +1,1 @@
+{"subscription_ack":{"event":"subscribe","channel":"futures.book_ticker"},"heartbeat":{"event":"pong"},"bbo":{"channel":"futures.book_ticker","event":"update","time_ms":1770000000000,"result":{"b":"100","B":"2","a":"101","A":"3","u":9}},"metadata":{"name":"SKHYNIX_USDT","underlying":"SKHYNIX_USDT","settle":"USDT","quanto_multiplier":"0.01"}}

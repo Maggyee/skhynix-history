@@ -42,3 +42,21 @@ uv run skhynix-research report-live-1m
 
 实时统计报告输出到 `reports_live_1m/`。它只分析五家原生 `trade close 1m`
 最长连续严格交集；不填充缺失分钟、不跨缺口、不混用 mark/index，也不包含资金费率。
+
+## 公共实时 BBO 采集器
+
+五家平台各自保持一条独立公共 WebSocket，自动心跳、指数退避重连，并把服务端原始
+frame 写入 `data/raw/live_bbo/`。标准化的可执行 BBO 以 5 分钟 Parquet part 写入
+`data/live_bbo/bbo/date=.../exchange=.../`，字段包括 bid/ask、两侧 size、交易所与
+本机接收时间、序列号及序列号来源。
+
+启动时会获取并归档五家产品 metadata；原生 size、合约单位/乘数、标准化标的数量和
+USD notional 会同时保存。无法解析单位的平台标记为 `SIZE_UNIT_UNKNOWN`。
+
+```bash
+uv run skhynix-research collect-bbo
+uv run skhynix-research collect-bbo --duration-seconds 600
+```
+
+本模块只包含公共市场数据。它不读取 API key、不连接账户或私有频道，不包含仓位、
+PnL、策略门槛或真实下单代码。健康快照写入 `data/live_bbo/health/latest.csv`。

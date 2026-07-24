@@ -1,0 +1,1 @@
+{"subscription_ack":{"result":null,"id":1},"heartbeat":{"event":"pong"},"bbo":{"e":"bookTicker","E":1770000000000,"u":9,"b":"100","B":"2","a":"101","A":"3"},"metadata":{"symbols":[{"symbol":"SKHYNIXUSDT","baseAsset":"SKHYNIX","quoteAsset":"USDT"}]}}

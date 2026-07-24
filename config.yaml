@@ -10,3 +10,11 @@ http:
   max_attempts: 5
   min_interval_seconds: 0.08
 
+live_bbo:
+  stale_after_ms: 3000
+  max_cross_exchange_skew_ms: 1500
+  heartbeat_seconds: 20
+  reconnect_min_seconds: 1
+  reconnect_max_seconds: 30
+  parquet_flush_seconds: 5
+  parquet_batch_rows: 500

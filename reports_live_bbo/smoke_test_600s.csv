@@ -1,0 +1,6 @@
+exchange,message_count,parsed_bbo_count,parse_error_count,reconnect_count,subscription_ack_count,median_receive_latency_ms,p99_receive_latency_ms,stale_ratio,size_unit_status,native_size_unit,contract_multiplier
+binance,48611,48611,0,0,0,42.3930,65.99740,0.0,SIZE_UNIT_OK,BASE_ASSET,1.000
+bitget,1364,1359,0,4,5,44.4430,56.80262,0.0,SIZE_UNIT_OK,CONTRACT,0.010
+gate,7199,7198,0,0,1,46.2300,70.30303,0.0,SIZE_UNIT_OK,CONTRACT,0.001
+hyperliquid,114,113,0,0,1,321.5120,549.54424,0.0,SIZE_UNIT_OK,UNDERLYING_ASSET,1.000
+okx,4615,4614,0,0,1,66.2145,123.87854,0.0,SIZE_UNIT_OK,CONTRACT,1.000
