@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import itertools
+import hashlib
 import json
 import math
 import time
@@ -262,6 +263,30 @@ def _pair_frames(aligned):
         yield a,b,z.reset_index()
 
 
+def _pair_ohlc_frames(aligned):
+    """Yield pair frames retaining both legs' native OHLC values.
+
+    Close values create signals; opens are execution proxies.  No filling or
+    resampling is permitted here because an absent timestamp is an execution
+    censoring condition, not a price to infer.
+    """
+    required = {"open_time", "exchange", "open", "high", "low", "close"}
+    missing = required - set(aligned.columns)
+    if missing:
+        raise ValueError(f"15m execution model missing OHLC columns: {sorted(missing)}")
+    trade = aligned[aligned.exchange.isin(EXCHANGES)].copy()
+    if "price_type" in trade:
+        trade = trade[trade.price_type == "trade"]
+    for a, b in itertools.combinations(EXCHANGES, 2):
+        left = trade[trade.exchange == a][["open_time", "open", "high", "low", "close"]]
+        right = trade[trade.exchange == b][["open_time", "open", "high", "low", "close"]]
+        z = left.merge(right, on="open_time", how="inner", suffixes=("_A", "_B")).sort_values("open_time")
+        z["close_spread_bps"] = symmetric_spread_bps(z.close_A, z.close_B)
+        z["abs_close_spread_bps"] = z.close_spread_bps.abs()
+        z["pair"] = f"{a}/{b}"
+        yield a, b, z.reset_index(drop=True)
+
+
 def _events_15m(z, threshold, allow_one_missing=False):
     z = z.sort_values("open_time").reset_index(drop=True)
     active = z[z.abs_spread_bps >= threshold].copy()
@@ -325,27 +350,169 @@ def _matrix_for_window(funding, start, end):
     return pd.DataFrame(rows)
 
 
+EXECUTION_MODEL = "NEXT_BAR_OPEN_PROXY"
+
+
+def _strategy_event_id(pair, threshold, signal_time):
+    key = f"{pair}|{int(threshold)}|{pd.Timestamp(signal_time).isoformat()}|{EXECUTION_MODEL}"
+    return "j15-" + hashlib.sha256(key.encode()).hexdigest()[:20]
+
+
+def _empty_joint_record(base_event_id, pair, threshold, signal_time, signal_spread):
+    direction = "SHORT_A_LONG_B" if signal_spread > 0 else "LONG_A_SHORT_B"
+    return {"analysis_scope": "PRICE_FUNDING_15M_GLOBAL_WINDOW", "execution_model": EXECUTION_MODEL,
+        "strategy_event_id": _strategy_event_id(pair, threshold, signal_time), "base_event_id": base_event_id,
+        "pair": pair, "threshold_bps": int(threshold), "signal_time": signal_time,
+        "signal_close_spread_bps": float(signal_spread), "signal_abs_spread_bps": abs(float(signal_spread)),
+        "signal_direction": direction, "entry_exec_time": pd.NaT, "exit_signal_time": pd.NaT,
+        "exit_signal_close_spread_bps": np.nan, "exit_exec_time": pd.NaT, "holding_minutes": np.nan,
+        "long_exchange": None, "short_exchange": None, "entry_long_price": np.nan,
+        "entry_short_price": np.nan, "exit_long_price": np.nan, "exit_short_price": np.nan,
+        "long_return": np.nan, "short_return": np.nan, "gross_price_pnl_bps": np.nan,
+        "signed_spread_change_bps": np.nan, "long_funding_event_count": 0,
+        "short_funding_event_count": 0, "sum_long_funding": 0.0, "sum_short_funding": 0.0,
+        "funding_cashflow_bps": np.nan, "combined_gross_bps": np.nan,
+        "net_after_cost_20bps": np.nan, "net_after_cost_40bps": np.nan,
+        "net_after_cost_80bps": np.nan, "mae_price_bps": np.nan, "mfe_price_bps": np.nan,
+        "status": None, "is_realized": False,
+        "data_quality": "native_15m_close_signal_next_contiguous_open_execution"}
+
+
+def _valid_prices(*values):
+    return all(pd.notna(x) and np.isfinite(float(x)) and float(x) > 0 for x in values)
+
+
+def _leg_pnl_bps(long_entry, short_entry, long_exit, short_exit):
+    long_return = float(long_exit) / float(long_entry) - 1
+    short_return = 1 - float(short_exit) / float(short_entry)
+    return long_return, short_return, (long_return + short_return) * 10_000
+
+
 def _joint_events(aligned, base_events, funding, joint_start, joint_end):
-    events=[]
-    strict=base_events[(base_events.comparison_quality=="STRICT_NATIVE_15M_BARS") & (base_events.event_start>=joint_start) & (base_events.event_end<joint_end)]
-    pair_map={f"{a}/{b}":z.set_index("open_time") for a,b,z in _pair_frames(aligned)}
-    for r in strict.itertuples():
-        z=pair_map[r.pair]; a,b=r.pair.split("/"); entry=z.loc[r.event_start]
-        exit_time=min(pd.Timestamp(r.event_end)+BAR, joint_end-BAR)
-        exit_row=z.loc[exit_time] if exit_time in z.index else z.loc[r.event_end]
-        if entry.spread_bps>=0: long_ex,short_ex=b,a
-        else: long_ex,short_ex=a,b
-        fe=funding_events_in_position_window(funding,r.event_start,exit_time+BAR)
-        lf=fe[fe.exchange==long_ex]; sf=fe[fe.exchange==short_ex]
-        funding_bps=(-lf.funding_rate.sum()+sf.funding_rate.sum())*10000
-        gross=max(0,float(r.peak_abs_spread_bps)-float(exit_row.abs_spread_bps))
-        rec={"analysis_scope":"PRICE_FUNDING_15M_GLOBAL_WINDOW", "base_event_id":r.base_event_id,"pair":r.pair,"threshold_bps":r.threshold_bps,
-            "entry_time":r.event_start,"exit_time":exit_time,"long_exchange":long_ex,"short_exchange":short_ex,
-            "gross_price_convergence_bps":gross,"funding_cashflow_bps":funding_bps,"long_funding_event_count":len(lf),"short_funding_event_count":len(sf),
-            "combined_gross_bps":gross+funding_bps,"data_quality":"native_15m_trade_close_plus_real_settlements"}
-        for cost in [20,40,80]: rec[f"net_after_cost_{cost}bps"] = rec["combined_gross_bps"]-cost
-        events.append(rec)
-    return pd.DataFrame(events)
+    """Run the causal NEXT_BAR_OPEN_PROXY model for every strict base event."""
+    columns = list(_empty_joint_record("", "binance/bitget", 20, pd.Timestamp("2000-01-01", tz="UTC"), 1).keys())
+    if base_events.empty:
+        return pd.DataFrame(columns=columns)
+    strict = base_events[(base_events.comparison_quality == "STRICT_NATIVE_15M_BARS") &
+                         (pd.to_datetime(base_events.event_start, utc=True) >= pd.Timestamp(joint_start)) &
+                         (pd.to_datetime(base_events.event_start, utc=True) < pd.Timestamp(joint_end))].copy()
+    pair_map = {f"{a}/{b}": z for a, b, z in _pair_ohlc_frames(aligned)}
+    funding = funding.copy(); funding["funding_time"] = pd.to_datetime(funding.funding_time, utc=True)
+    results = []
+    for event in strict.sort_values(["pair", "threshold_bps", "event_start"]).itertuples():
+        signal_time = pd.Timestamp(event.event_start)
+        z_all = pair_map.get(event.pair, pd.DataFrame())
+        signal_rows = z_all[z_all.open_time == signal_time]
+        if signal_rows.empty:
+            # A strict base event should always have its signal row.  Preserve it
+            # as invalid rather than borrowing any neighboring observation.
+            rec = _empty_joint_record(event.base_event_id, event.pair, event.threshold_bps, signal_time, np.nan)
+            rec["status"] = "INVALID_PRICE"; results.append(rec); continue
+        signal_row = signal_rows.iloc[0]; signal_spread = float(signal_row.close_spread_bps)
+        rec = _empty_joint_record(event.base_event_id, event.pair, event.threshold_bps, signal_time, signal_spread)
+        a, b = event.pair.split("/"); entry_time = signal_time + BAR
+        if entry_time >= pd.Timestamp(joint_end):
+            rec["status"] = "PAIR_WINDOW_END"; results.append(rec); continue
+        entry_rows = z_all[z_all.open_time == entry_time]
+        if entry_rows.empty:
+            rec["status"] = "DATA_GAP_BEFORE_ENTRY" if (z_all.open_time > entry_time).any() else "NO_NEXT_BAR_FOR_ENTRY"
+            results.append(rec); continue
+        entry = entry_rows.iloc[0]
+        if signal_spread > 0:
+            long_ex, short_ex = b, a; entry_long, entry_short = entry.open_B, entry.open_A
+            long_close_col, short_close_col = "close_B", "close_A"
+        else:
+            long_ex, short_ex = a, b; entry_long, entry_short = entry.open_A, entry.open_B
+            long_close_col, short_close_col = "close_A", "close_B"
+        rec.update({"entry_exec_time": entry_time, "long_exchange": long_ex, "short_exchange": short_ex,
+                    "entry_long_price": entry_long, "entry_short_price": entry_short})
+        if not _valid_prices(entry_long, entry_short):
+            rec["status"] = "INVALID_PRICE"; results.append(rec); continue
+
+        hold = z_all[(z_all.open_time >= entry_time) & (z_all.open_time < pd.Timestamp(joint_end))].copy()
+        expected = entry_time; exit_signal = None
+        for row in hold.itertuples():
+            if row.open_time != expected:
+                rec["status"] = "DATA_GAP_DURING_HOLD"; break
+            if float(row.abs_close_spread_bps) < float(event.threshold_bps):
+                exit_signal = row; break
+            expected += BAR
+        if rec["status"] == "DATA_GAP_DURING_HOLD":
+            results.append(rec); continue
+        if exit_signal is None:
+            rec["status"] = "RIGHT_CENSORED" if len(hold) else "PAIR_WINDOW_END"
+            results.append(rec); continue
+        exit_signal_time = pd.Timestamp(exit_signal.open_time); exit_time = exit_signal_time + BAR
+        rec.update({"exit_signal_time": exit_signal_time,
+                    "exit_signal_close_spread_bps": float(exit_signal.close_spread_bps)})
+        if exit_time >= pd.Timestamp(joint_end):
+            rec["status"] = "PAIR_WINDOW_END"; results.append(rec); continue
+        exit_rows = z_all[z_all.open_time == exit_time]
+        if exit_rows.empty:
+            rec["status"] = "DATA_GAP_DURING_HOLD" if (z_all.open_time > exit_time).any() else "NO_NEXT_BAR_FOR_EXIT"
+            results.append(rec); continue
+        exit_row = exit_rows.iloc[0]
+        exit_long = exit_row.open_B if signal_spread > 0 else exit_row.open_A
+        exit_short = exit_row.open_A if signal_spread > 0 else exit_row.open_B
+        if not _valid_prices(exit_long, exit_short):
+            rec["status"] = "INVALID_PRICE"; results.append(rec); continue
+        long_return, short_return, gross = _leg_pnl_bps(entry_long, entry_short, exit_long, exit_short)
+        signed_change = signal_spread - float(exit_signal.close_spread_bps) if signal_spread > 0 else float(exit_signal.close_spread_bps) - signal_spread
+        fe = funding_events_in_position_window(funding, entry_time, exit_time)
+        lf = fe[fe.exchange == long_ex]; sf = fe[fe.exchange == short_ex]
+        sum_lf = float(lf.funding_rate.sum()); sum_sf = float(sf.funding_rate.sum())
+        funding_bps = (-sum_lf + sum_sf) * 10_000
+        combined = gross + funding_bps
+        marks = hold[hold.open_time <= exit_signal_time]
+        mark_pnl = []
+        for mark in marks.itertuples():
+            mark_long = getattr(mark, long_close_col); mark_short = getattr(mark, short_close_col)
+            if _valid_prices(mark_long, mark_short):
+                mark_pnl.append(_leg_pnl_bps(entry_long, entry_short, mark_long, mark_short)[2])
+        rec.update({"exit_exec_time": exit_time, "holding_minutes": (exit_time-entry_time).total_seconds()/60,
+            "exit_long_price": exit_long, "exit_short_price": exit_short, "long_return": long_return,
+            "short_return": short_return, "gross_price_pnl_bps": gross,
+            "signed_spread_change_bps": signed_change, "long_funding_event_count": len(lf),
+            "short_funding_event_count": len(sf), "sum_long_funding": sum_lf,
+            "sum_short_funding": sum_sf, "funding_cashflow_bps": funding_bps,
+            "combined_gross_bps": combined, "net_after_cost_20bps": combined-20,
+            "net_after_cost_40bps": combined-40, "net_after_cost_80bps": combined-80,
+            "mae_price_bps": min(mark_pnl) if mark_pnl else np.nan,
+            "mfe_price_bps": max(mark_pnl) if mark_pnl else np.nan,
+            "status": "REALIZED", "is_realized": True})
+        results.append(rec)
+    return pd.DataFrame(results, columns=columns)
+
+
+def _summarize_joint_events(joint, joint_start, joint_end):
+    columns = ["analysis_scope", "execution_model", "pair", "threshold_bps", "cost_bps",
+        "event_count_total", "realized_event_count", "censored_event_count", "positive_event_count",
+        "win_rate", "sum_event_net_bps", "mean_event_net_bps", "median_event_net_bps",
+        "p05_event_net_bps", "p95_event_net_bps", "mean_holding_minutes",
+        "median_holding_minutes", "max_holding_minutes", "joint_start", "joint_end"]
+    if joint.empty:
+        return pd.DataFrame(columns=columns)
+    rows = []
+    for (model, pair, threshold), group in joint.groupby(["execution_model", "pair", "threshold_bps"], sort=True):
+        realized = group[group.status == "REALIZED"]
+        for cost in [20, 40, 80]:
+            net = pd.to_numeric(realized[f"net_after_cost_{cost}bps"], errors="coerce").dropna()
+            holding = pd.to_numeric(realized.holding_minutes, errors="coerce").dropna()
+            rows.append({"analysis_scope": "PRICE_FUNDING_15M_GLOBAL_WINDOW", "execution_model": model,
+                "pair": pair, "threshold_bps": int(threshold), "cost_bps": cost,
+                "event_count_total": len(group), "realized_event_count": len(realized),
+                "censored_event_count": len(group)-len(realized), "positive_event_count": int((net > 0).sum()),
+                "win_rate": float((net > 0).mean()) if len(net) else np.nan,
+                "sum_event_net_bps": float(net.sum()) if len(net) else np.nan,
+                "mean_event_net_bps": float(net.mean()) if len(net) else np.nan,
+                "median_event_net_bps": float(net.median()) if len(net) else np.nan,
+                "p05_event_net_bps": float(net.quantile(.05)) if len(net) else np.nan,
+                "p95_event_net_bps": float(net.quantile(.95)) if len(net) else np.nan,
+                "mean_holding_minutes": float(holding.mean()) if len(holding) else np.nan,
+                "median_holding_minutes": float(holding.median()) if len(holding) else np.nan,
+                "max_holding_minutes": float(holding.max()) if len(holding) else np.nan,
+                "joint_start": joint_start, "joint_end": joint_end})
+    return pd.DataFrame(rows, columns=columns)
 
 
 def _charts(aligned, summary, events, start, end):
@@ -400,14 +567,7 @@ def analyze_native_15m(prices, funding):
     funding_start,funding_end,_,_=_funding_bounds(funding);joint_start=max(start,funding_start);joint_end=min(end,funding_end)
     fm=_matrix_for_window(funding,joint_start,joint_end);fm.to_csv(R15/"funding_global_matrix_15m_window.csv",index=False)
     joint=_joint_events(aligned,events,funding,joint_start,joint_end);joint.to_csv(R15/"joint_strategy_events_15m.csv",index=False)
-    if len(joint):
-        js=[]
-        for cost in [20,40,80]:
-            for pair,g in joint.groupby("pair"):
-                x=g[f"net_after_cost_{cost}bps"]
-                js.append({"analysis_scope":"PRICE_FUNDING_15M_GLOBAL_WINDOW","pair":pair,"cost_bps":cost,"event_count":len(g),"positive_event_count":int((x>0).sum()),"win_rate":float((x>0).mean()),"total_net_bps":x.sum(),"median_net_bps":x.median(),"joint_start":joint_start,"joint_end":joint_end})
-        joint_summary=pd.DataFrame(js)
-    else: joint_summary=pd.DataFrame(columns=["analysis_scope","pair","cost_bps","event_count","positive_event_count","win_rate","total_net_bps","median_net_bps","joint_start","joint_end"])
+    joint_summary=_summarize_joint_events(joint,joint_start,joint_end)
     joint_summary.to_csv(R15/"joint_strategy_summary_15m.csv",index=False)
     _charts(aligned,summary,events,start,end)
     text=_write_15m_report(start,end,funding_start,funding_end,summary,joint_summary,events,aligned)
@@ -429,8 +589,8 @@ def _write_15m_report(start,end,funding_start,funding_end,summary,joint_summary,
         if "hyperliquid" in (a,b): hl_pre.extend(z.loc[z.open_time<pd.Timestamp("2026-07-19T00:00Z"),"spread_bps"].tolist())
     cost_lines=[]
     for c in [20,40,80]:
-        x=joint_summary[joint_summary.cost_bps==c]
-        cost_lines.append(f"- {c} bps：{int(x.event_count.sum()) if len(x) else 0} 个 pair-event，正收益 {int(x.positive_event_count.sum()) if len(x) else 0}，合计净值 {x.total_net_bps.sum() if len(x) else 0:.2f} bps。")
+        x=joint_summary[(joint_summary.cost_bps==c) & (joint_summary.threshold_bps==20) & (joint_summary.execution_model==EXECUTION_MODEL)]
+        cost_lines.append(f"- 20 bps触发阈值＋双所总往返成本 {c} bps：{int(x.realized_event_count.sum()) if len(x) else 0} 个已实现事件，正收益 {int(x.positive_event_count.sum()) if len(x) else 0}，累计事件净值 {x.sum_event_net_bps.sum() if len(x) else 0:.2f} bps。")
     text=f"""# SKHYNIX 五家统一窗口研究（15m 全历史主分析）
 
 口径分为 `FUNDING_ONLY_GLOBAL_WINDOW`、`PRICE_FUNDING_15M_GLOBAL_WINDOW` 与 `RECENT_1M_MICROSTRUCTURE_ANALYSIS`。五家主价格榜统一使用 `ALL_FIVE_TRADE_CLOSE_15M`；`MARK_AVAILABLE_SUBSET_15M` 单列且不混榜。
@@ -459,6 +619,7 @@ def _write_15m_report(start,end,funding_start,funding_end,summary,joint_summary,
 - 严格事件遇到缺失15m桶即断开；`ALLOW_ONE_MISSING_15M_BAR` 是单列敏感性分析。
 - 价格是成交K线收盘，不是历史BBO；联合策略不含盘口深度、实际滑点、容量、排队和强平规则。
 - 资金统一窗口为 `[{funding_start}, {funding_end})` 的保守干净UTC边界；事件边界采用严格入场后、离场前计数。
+- 联合策略已从事后峰值算法修正为 `NEXT_BAR_OPEN_PROXY`；新旧结果不可直接比较。信号在15分钟收盘确认，下一根连续K线开盘入场；退出也在收盘确认后于下一根连续K线开盘执行。
 """
     (R15/"EXECUTIVE_SUMMARY_15M.md").write_text(text)
     return text
