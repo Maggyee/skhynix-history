@@ -42,3 +42,24 @@ uv run skhynix-research report-live-1m
 
 实时统计报告输出到 `reports_live_1m/`。它只分析五家原生 `trade close 1m`
 最长连续严格交集；不填充缺失分钟、不跨缺口、不混用 mark/index，也不包含资金费率。
+
+## 实时 BBO 与 paper trading
+
+五家平台各自保持一条独立公共 WebSocket，自动心跳、指数退避重连，并把服务端原始
+frame 写入 `data/raw/live_bbo/`。标准化的可执行 BBO 以 5 分钟 Parquet part 写入
+`data/live_bbo/bbo/date=.../exchange=.../`，字段包括 bid/ask、两侧 size、交易所与
+本机接收时间、序列号及序列号来源。
+
+```bash
+# 前台运行；SIGINT/SIGTERM 会刷新 Parquet、ledger 和当日日报
+uv run skhynix-research collect-bbo
+
+# 从持久化 paper ledger 重新生成指定 UTC 日报告
+uv run skhynix-research report-paper-bbo --date 2026-07-24
+```
+
+第一阶段是严格的 `PAPER ONLY`：不读取 API key、不连接账户或私有频道，也不存在
+真实下单函数。组合同时最多一笔、两腿合计名义上限 $1,000。冻结的 regime 白名单
+及 100/150/200 bps 门槛位于 `config.yaml`；运行时不会重新估计。新信号必须同时
+通过连接、双腿 BBO、接收/交易所时间陈旧度、跨所时间差、top-of-book 深度和序列
+单调性检查。日报与交易 CSV 位于 `data/live_bbo/paper/reports/`。
