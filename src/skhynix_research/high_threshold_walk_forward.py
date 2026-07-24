@@ -21,6 +21,7 @@ import pandas as pd
 
 from .analysis import symmetric_spread_bps
 from .config import ROOT
+from .gate_regime_15m import build_causal_regime_labels
 
 EXECUTION_MODEL = "NEXT_BAR_OPEN_PROXY"
 THRESHOLDS = (100, 150, 200)
@@ -29,6 +30,12 @@ ALLOWED_ENTRY_REGIMES = frozenset({"NORMAL", "TRANSIENT_DISLOCATION"})
 FORBIDDEN_ENTRY_REGIMES = frozenset({"STRUCTURAL_PREMIUM", "STALE_OR_INVALID"})
 PSEUDO_OOS = "HISTORICAL_ROLLING_PSEUDO_OOS"
 TRUE_OOS = "FUTURE_TRUE_OOS"
+GATE_REGIME_POLICY = "GATE_CAUSAL_ALLOWED_NORMAL_TRANSIENT"
+NON_GATE_REGIME_POLICY = "NO_GATE_REGIME_FILTER"
+EVENT_STATUSES = (
+    "REALIZED", "RIGHT_CENSORED", "NO_NEXT_BAR_FOR_ENTRY", "NO_NEXT_BAR_FOR_EXIT",
+    "DATA_GAP_DURING_HOLD", "INVALID_PRICE",
+)
 
 
 @dataclass(frozen=True)
@@ -59,7 +66,7 @@ class WalkForwardConfig:
     train_bars: int = 7 * 24 * 4
     test_bars: int = 2 * 24 * 4
     step_bars: int | None = None
-    min_train_events: int = 2
+    min_train_events: int = 10
     bootstrap_samples: int = 2000
     confidence_level: float = 0.95
     random_seed: int = 1729
@@ -183,8 +190,9 @@ def _funding_bps(funding: pd.DataFrame | None, long_ex: str, short_ex: str,
 
 def simulate_period(bars: pd.DataFrame, params: RegimeParameters, threshold_bps: int,
                     cost_bps: int, start, end, funding: pd.DataFrame | None = None,
-                    *, regimes_preclassified: bool = False) -> tuple[pd.DataFrame, dict]:
-    """Run one frozen parameter set.  At most one position per pair is open."""
+                    *, regimes_preclassified: bool = False,
+                    regime_policy: str = "LEGACY_PAIR_CAUSAL") -> tuple[pd.DataFrame, dict]:
+    """Run one fixed scenario and retain every eligible signal outcome."""
     threshold_bps = _validate_threshold(threshold_bps)
     cost_bps = _validate_cost(cost_bps)
     start, end = _utc(start), _utc(end)
@@ -207,15 +215,37 @@ def simulate_period(bars: pd.DataFrame, params: RegimeParameters, threshold_bps:
     open_a, open_b = z.open_A.to_numpy(float), z.open_B.to_numpy(float)
     close_a, close_b = z.close_A.to_numpy(float), z.close_B.to_numpy(float)
     rows, occupied_ns, overlap_signals = [], 0, 0
+
+    def event(status, signal_i, **values):
+        row = {
+            "pair": pair, "signal_time": times[signal_i], "signal_regime": regimes[signal_i],
+            "threshold_bps": threshold_bps, "cost_bps": cost_bps,
+            "entry_exec_time": pd.NaT, "exit_exec_time": pd.NaT,
+            "holding_minutes": np.nan, "long_exchange": None, "short_exchange": None,
+            "gross_price_pnl_bps": np.nan, "funding_pnl_bps": np.nan,
+            "gross_pnl_bps": np.nan, "net_pnl_bps": np.nan,
+            "mae_bps": np.nan, "mfe_bps": np.nan,
+            "execution_model": EXECUTION_MODEL, "regime_policy": regime_policy, "status": status,
+        }
+        row.update(values)
+        rows.append(row)
+
     i = int(times.searchsorted(start))
     stop = int(times.searchsorted(end))
     while i < stop:
-        eligible = (abs_spreads[i] >= threshold_bps and regimes[i] in ALLOWED_ENTRY_REGIMES)
+        regime_allowed = (regime_policy == NON_GATE_REGIME_POLICY or
+                          regimes[i] in ALLOWED_ENTRY_REGIMES)
+        eligible = abs_spreads[i] >= threshold_bps and regime_allowed
         if not eligible:
             i += 1
             continue
         entry_i = i + 1
-        if entry_i >= stop or times[entry_i] != times[i] + bar:
+        if entry_i >= stop:
+            event("NO_NEXT_BAR_FOR_ENTRY", i)
+            i += 1
+            continue
+        if times[entry_i] != times[i] + bar:
+            event("NO_NEXT_BAR_FOR_ENTRY", i)
             i += 1
             continue
         positive = spreads[i] > 0
@@ -223,26 +253,43 @@ def simulate_period(bars: pd.DataFrame, params: RegimeParameters, threshold_bps:
         entry_long = open_b[entry_i] if positive else open_a[entry_i]
         entry_short = open_a[entry_i] if positive else open_b[entry_i]
         if not np.isfinite([entry_long, entry_short]).all() or min(entry_long, entry_short) <= 0:
+            event("INVALID_PRICE", i)
             i += 1
             continue
         exit_signal_i = None
+        gap_during_hold = False
         j = entry_i
         while j < stop:
             if j > entry_i and abs_spreads[j] >= threshold_bps:
                 overlap_signals += 1
             if times[j] != times[entry_i] + (j - entry_i) * bar:
+                gap_during_hold = True
                 break
             if abs_spreads[j] < threshold_bps:
                 exit_signal_i = j
                 break
             j += 1
         exit_i = exit_signal_i + 1 if exit_signal_i is not None else None
-        if exit_i is None or exit_i >= stop or times[exit_i] != times[exit_signal_i] + bar:
+        if gap_during_hold:
+            event("DATA_GAP_DURING_HOLD", i, entry_exec_time=times[entry_i],
+                  long_exchange=long_ex, short_exchange=short_ex)
             i = max(i + 1, j)
+            continue
+        if exit_i is None:
+            event("RIGHT_CENSORED", i, entry_exec_time=times[entry_i],
+                  long_exchange=long_ex, short_exchange=short_ex)
+            i = stop
+            continue
+        if exit_i >= stop or times[exit_i] != times[exit_signal_i] + bar:
+            event("NO_NEXT_BAR_FOR_EXIT", i, entry_exec_time=times[entry_i],
+                  long_exchange=long_ex, short_exchange=short_ex)
+            i = max(i + 1, exit_signal_i + 1)
             continue
         exit_long = open_b[exit_i] if positive else open_a[exit_i]
         exit_short = open_a[exit_i] if positive else open_b[exit_i]
         if not np.isfinite([exit_long, exit_short]).all() or min(exit_long, exit_short) <= 0:
+            event("INVALID_PRICE", i, entry_exec_time=times[entry_i],
+                  exit_exec_time=times[exit_i], long_exchange=long_ex, short_exchange=short_ex)
             i = exit_i + 1
             continue
         ml = close_b[entry_i:exit_signal_i + 1] if positive else close_a[entry_i:exit_signal_i + 1]
@@ -255,17 +302,12 @@ def simulate_period(bars: pd.DataFrame, params: RegimeParameters, threshold_bps:
         gross = gross_price + funding_pnl
         holding = (times[exit_i] - times[entry_i]).total_seconds() / 60
         occupied_ns += (times[exit_i] - times[entry_i]).value
-        rows.append({
-            "pair": pair, "signal_time": times[i], "signal_regime": regimes[i],
-            "threshold_bps": threshold_bps, "cost_bps": cost_bps,
-            "entry_exec_time": times[entry_i], "exit_exec_time": times[exit_i],
-            "holding_minutes": holding, "long_exchange": long_ex, "short_exchange": short_ex,
-            "gross_price_pnl_bps": gross_price, "funding_pnl_bps": funding_pnl,
-            "gross_pnl_bps": gross, "net_pnl_bps": gross - cost_bps,
-            "mae_bps": float(path.min()) if len(path) else np.nan,
-            "mfe_bps": float(path.max()) if len(path) else np.nan,
-            "execution_model": EXECUTION_MODEL, "status": "REALIZED",
-        })
+        event("REALIZED", i, entry_exec_time=times[entry_i], exit_exec_time=times[exit_i],
+              holding_minutes=holding, long_exchange=long_ex, short_exchange=short_ex,
+              gross_price_pnl_bps=gross_price, funding_pnl_bps=funding_pnl,
+              gross_pnl_bps=gross, net_pnl_bps=gross-cost_bps,
+              mae_bps=float(path.min()) if len(path) else np.nan,
+              mfe_bps=float(path.max()) if len(path) else np.nan)
         # The next signal may only be considered after this position has exited.
         i = exit_i
     duration_ns = max(0, (end - start).value)
@@ -274,7 +316,10 @@ def simulate_period(bars: pd.DataFrame, params: RegimeParameters, threshold_bps:
         "same_pair_blocked_overlap_signal_count": int(overlap_signals),
         "cross_pair_overlapping_event_count": 0,
     }
-    return pd.DataFrame(rows), diagnostics
+    events = pd.DataFrame(rows)
+    if len(events) and not set(events.status) <= set(EVENT_STATUSES):
+        raise AssertionError("unexpected event status")
+    return events, diagnostics
 
 
 def _score_train(events: pd.DataFrame, min_events: int) -> tuple[float, int]:
@@ -320,16 +365,48 @@ def _bootstrap_ci(values: Iterable[float], samples: int, level: float, seed: int
     return tuple(float(v) for v in np.quantile(means, [alpha, 1 - alpha]))
 
 
+def _day_block_bootstrap_ci(events: pd.DataFrame, samples: int, level: float,
+                            seed: int) -> tuple[float, float]:
+    realized = events[events.get("status", pd.Series(index=events.index, dtype=object)).eq("REALIZED")].copy()
+    if realized.empty or samples == 0:
+        return np.nan, np.nan
+    realized["event_day"] = pd.to_datetime(realized.signal_time, utc=True).dt.floor("D")
+    blocks = [pd.to_numeric(g.net_pnl_bps, errors="coerce").dropna().to_numpy()
+              for _, g in realized.groupby("event_day")]
+    blocks = [b for b in blocks if len(b)]
+    if not blocks:
+        return np.nan, np.nan
+    rng = np.random.default_rng(seed)
+    means = []
+    for _ in range(samples):
+        picked = rng.integers(0, len(blocks), size=len(blocks))
+        sample = np.concatenate([blocks[i] for i in picked])
+        means.append(sample.mean())
+    alpha = (1 - level) / 2
+    return tuple(float(v) for v in np.quantile(means, [alpha, 1 - alpha]))
+
+
 def _summary_row(events: pd.DataFrame, diagnostics: dict, config: WalkForwardConfig, seed: int) -> dict:
-    net = pd.to_numeric(events.get("net_pnl_bps", pd.Series(dtype=float)), errors="coerce").dropna()
-    hold = pd.to_numeric(events.get("holding_minutes", pd.Series(dtype=float)), errors="coerce").dropna()
-    mae = pd.to_numeric(events.get("mae_bps", pd.Series(dtype=float)), errors="coerce").dropna()
-    mfe = pd.to_numeric(events.get("mfe_bps", pd.Series(dtype=float)), errors="coerce").dropna()
-    low, high = _bootstrap_ci(net, config.bootstrap_samples, config.confidence_level, seed)
+    status = events.get("status", pd.Series(index=events.index, dtype=object))
+    realized = events[status.eq("REALIZED")]
+    net = pd.to_numeric(realized.get("net_pnl_bps", pd.Series(dtype=float)), errors="coerce").dropna()
+    hold = pd.to_numeric(realized.get("holding_minutes", pd.Series(dtype=float)), errors="coerce").dropna()
+    mae = pd.to_numeric(realized.get("mae_bps", pd.Series(dtype=float)), errors="coerce").dropna()
+    mfe = pd.to_numeric(realized.get("mfe_bps", pd.Series(dtype=float)), errors="coerce").dropna()
+    naive_low, naive_high = _bootstrap_ci(net, config.bootstrap_samples, config.confidence_level, seed)
+    block_low, block_high = _day_block_bootstrap_ci(
+        realized, config.bootstrap_samples, config.confidence_level, seed + 1
+    )
+    total = len(events); censored = total - len(realized)
     return {
+        "total_signal_count": total, "realized_event_count": len(realized),
+        "censored_event_count": censored, "censor_rate": censored / total if total else np.nan,
         "event_count": len(net), "mean_net_bps": net.mean() if len(net) else np.nan,
         "median_net_bps": net.median() if len(net) else np.nan,
         "win_rate": (net > 0).mean() if len(net) else np.nan,
+        "mae_bps": mae.mean() if len(mae) else np.nan,
+        "mfe_bps": mfe.mean() if len(mfe) else np.nan,
+        "holding_minutes": hold.mean() if len(hold) else np.nan,
         "mean_mae_bps": mae.mean() if len(mae) else np.nan,
         "median_mae_bps": mae.median() if len(mae) else np.nan,
         "mean_mfe_bps": mfe.mean() if len(mfe) else np.nan,
@@ -341,7 +418,12 @@ def _summary_row(events: pd.DataFrame, diagnostics: dict, config: WalkForwardCon
             diagnostics.get("same_pair_blocked_overlap_signal_count", 0)),
         "cross_pair_overlapping_event_count": int(
             diagnostics.get("cross_pair_overlapping_event_count", 0)),
-        "bootstrap_mean_ci_low_bps": low, "bootstrap_mean_ci_high_bps": high,
+        "naive_event_bootstrap_ci_low": naive_low,
+        "naive_event_bootstrap_ci_high": naive_high,
+        "block_bootstrap_ci_low": block_low,
+        "block_bootstrap_ci_high": block_high,
+        "bootstrap_mean_ci_low_bps": block_low, "bootstrap_mean_ci_high_bps": block_high,
+        "bootstrap_method_primary": "DAY_BLOCK_BOOTSTRAP",
         "bootstrap_confidence_level": config.confidence_level,
         "bootstrap_samples": config.bootstrap_samples,
     }
@@ -390,6 +472,7 @@ def _fold_boundaries(times: pd.DatetimeIndex, config: WalkForwardConfig):
 
 def _cross_pair_overlap_count(events: pd.DataFrame) -> int:
     """Count realized events overlapping at least one event on another pair."""
+    events = events[events.get("status", pd.Series(index=events.index, dtype=object)).eq("REALIZED")]
     if len(events) < 2:
         return 0
     z = events.reset_index(drop=True).copy()
@@ -406,7 +489,7 @@ def _cross_pair_overlap_count(events: pd.DataFrame) -> int:
 def run_walk_forward(prices: pd.DataFrame, funding: pd.DataFrame | None = None,
                      config: WalkForwardConfig | None = None,
                      output_dir: str | Path | None = None) -> dict[str, pd.DataFrame | Path]:
-    """Run and persist fold events, fold metrics, aggregate metrics and locks."""
+    """Run fixed 100/150/200 bps scenarios without cross-threshold mixing."""
     config = config or WalkForwardConfig()
     out = Path(output_dir or ROOT / "reports_high_threshold_walk_forward")
     out.mkdir(parents=True, exist_ok=True)
@@ -416,69 +499,109 @@ def run_walk_forward(prices: pd.DataFrame, funding: pd.DataFrame | None = None,
     times = pd.DatetimeIndex(sorted(set.intersection(*(set(z.open_time) for z in pairs.values()))))
     if len(times) <= config.train_bars:
         raise ValueError("not enough common bars for one walk-forward fold")
-    future_start = _utc(config.future_oos_start) if config.future_oos_start is not None else None
-    all_events, fold_rows, frozen = [], [], []
+    # Current history is always pseudo-OOS.  Merely passing a date at runtime
+    # cannot retroactively prove that parameters were locked before that date.
+    future_start = None
+    has_gate_pair = any("gate" in pair.split("/") for pair in pairs)
+    causal = (build_causal_regime_labels(prices)[["open_time", "causal_regime"]]
+              if has_gate_pair else pd.DataFrame(columns=["open_time", "causal_regime"]))
+    default_params = RegimeParameters(96, .80, 50.0, 100.0)
+    all_events, fold_rows, parameter_rows = [], [], []
     for fold_id, train_start, train_end, test_start, test_end in _fold_boundaries(times, config):
-        oos_kind = TRUE_OOS if future_start is not None and test_start >= future_start else PSEUDO_OOS
+        oos_kind = PSEUDO_OOS
         for pair, bars in pairs.items():
-            train = bars[(bars.open_time >= train_start) & (bars.open_time < train_end)].copy()
+            gate_pair = "gate" in pair.split("/")
+            regime_policy = GATE_REGIME_POLICY if gate_pair else NON_GATE_REGIME_POLICY
+            pair_scope = "GATE_PAIRS" if gate_pair else "NON_GATE_PAIRS"
+            classified = bars.merge(causal, on="open_time", how="left") if gate_pair else bars.copy()
+            classified["regime"] = (classified.pop("causal_regime").fillna("STALE_OR_INVALID")
+                                    if gate_pair else NON_GATE_REGIME_POLICY)
+            train = classified[(classified.open_time >= train_start) &
+                               (classified.open_time < train_end)].copy()
             if train.empty:
                 continue
-            context = bars[bars.open_time < test_end].copy()
-            # A fixed round-trip cost subtracts the same scalar from every
-            # realized event, so it cannot change the ordering by mean return.
-            # Select once on training at the first allowed cost, then attach the
-            # identical train-selected parameters to all cost scenarios.
-            selected = select_parameters(train, pair, fold_id, COSTS[0], train_start, train_end,
-                                         test_start, test_end, funding, config.min_train_events)
-            for cost in COSTS:
-                locked = FrozenParameters(selected.fold_id, selected.pair, cost,
-                                          selected.threshold_bps, selected.regime,
-                                          selected.train_start, selected.train_end,
-                                          selected.test_start, selected.test_end)
-                frozen.append(locked)
-                events, diagnostics = simulate_period(context, locked.regime, locked.threshold_bps,
-                                                       cost, test_start, test_end, funding)
-                events["fold_id"] = fold_id; events["oos_kind"] = oos_kind
-                events["parameters_frozen"] = True
-                all_events.append(events)
-                row = {"fold_id": fold_id, "pair": pair, "cost_bps": cost,
-                       "threshold_bps": locked.threshold_bps, "train_start": train_start,
+            # Explicit test warm-up: retain the final causal lookback from the
+            # training window, but simulate_period only admits signals >= test_start.
+            context_start = train_end - pd.Timedelta(minutes=15 * default_params.lookback_bars)
+            context = classified[(classified.open_time >= context_start) &
+                                 (classified.open_time < test_end)].copy()
+            for threshold in THRESHOLDS:
+                for cost in COSTS:
+                    train_events, _ = simulate_period(
+                        classified, default_params, threshold, cost, train_start, train_end,
+                        funding, regimes_preclassified=True, regime_policy=regime_policy
+                    )
+                    train_realized = int(train_events.status.eq("REALIZED").sum()) if len(train_events) else 0
+                    train_status = ("OK" if train_realized >= config.min_train_events
+                                    else "INSUFFICIENT_TRAIN_SAMPLE")
+                    events, diagnostics = simulate_period(
+                        context, default_params, threshold, cost, test_start, test_end, funding,
+                        regimes_preclassified=True, regime_policy=regime_policy
+                    )
+                    events["fold_id"] = fold_id; events["oos_kind"] = oos_kind
+                    events["parameters_frozen"] = True; events["pair_scope"] = pair_scope
+                    all_events.append(events)
+                    parameter_rows.append({
+                        "fold_id": fold_id, "pair": pair, "threshold_bps": threshold,
+                        "cost_bps": cost, "regime_policy": regime_policy,
+                        "scenario_scope": "FIXED_THRESHOLD_MAIN",
+                        "selected_on": "NOT_APPLICABLE_FIXED_SCENARIO",
+                        "train_sample_status": train_status, "train_event_count": train_realized,
+                        "test_start": test_start, "test_end": test_end,
+                    })
+                    row = {"fold_id": fold_id, "pair": pair, "pair_scope": pair_scope,
+                       "cost_bps": cost, "threshold_bps": threshold,
+                       "regime_policy": regime_policy, "train_start": train_start,
                        "train_end": train_end, "test_start": test_start, "test_end": test_end,
                        "oos_kind": oos_kind, "execution_model": EXECUTION_MODEL,
-                       "allowed_entry_regimes": "NORMAL|TRANSIENT_DISLOCATION",
-                       "forbidden_entry_regimes": "STRUCTURAL_PREMIUM|STALE_OR_INVALID",
-                       "parameters_selected_on": "TRAIN_ONLY", "parameters_frozen": True}
-                row.update(_summary_row(events, diagnostics, config,
-                                        config.random_seed + fold_id * 101 + cost))
-                fold_rows.append(row)
+                       "allowed_entry_regimes": ("NORMAL|TRANSIENT_DISLOCATION" if gate_pair
+                                                  else "NOT_APPLICABLE"),
+                       "forbidden_entry_regimes": ("STRUCTURAL_PREMIUM|STALE_OR_INVALID" if gate_pair
+                                                    else "NOT_APPLICABLE"),
+                       "train_event_count": train_realized, "train_sample_status": train_status,
+                       "parameters_selected_on": "NOT_APPLICABLE_FIXED_SCENARIO",
+                       "parameters_frozen": True}
+                    row.update(_summary_row(events, diagnostics, config,
+                                            config.random_seed + fold_id * 1009 + threshold + cost))
+                    row["total_test_signals"] = row["total_signal_count"]
+                    fold_rows.append(row)
     event_columns = ["pair", "signal_time", "signal_regime", "threshold_bps", "cost_bps",
                      "entry_exec_time", "exit_exec_time", "holding_minutes", "long_exchange",
                      "short_exchange", "gross_price_pnl_bps", "funding_pnl_bps", "gross_pnl_bps",
                      "net_pnl_bps", "mae_bps", "mfe_bps", "execution_model", "status",
-                     "fold_id", "oos_kind", "parameters_frozen"]
+                     "regime_policy", "fold_id", "oos_kind", "parameters_frozen", "pair_scope"]
     events_df = (pd.concat(all_events, ignore_index=True).reindex(columns=event_columns)
                  if all_events else pd.DataFrame(columns=event_columns))
     folds_df = pd.DataFrame(fold_rows)
-    params_df = _parameter_records(frozen)
-    _lock_parameters(out / "frozen_parameters.csv", params_df)
+    params_df = pd.DataFrame(parameter_rows)
+    params_df.to_csv(out / "frozen_parameters.csv", index=False)
     events_df.to_csv(out / "fold_events.csv", index=False)
     folds_df.to_csv(out / "fold_results.csv", index=False)
     aggregate_rows = []
-    for (pair, cost, kind), fold_subset in folds_df.groupby(["pair", "cost_bps", "oos_kind"], dropna=False):
-        g = events_df[(events_df.pair == pair) & (events_df.cost_bps == cost) &
-                      (events_df.oos_kind == kind)]
+    group_cols = ["pair", "threshold_bps", "cost_bps", "regime_policy", "oos_kind",
+                  "execution_model", "pair_scope"]
+    for keys, fold_subset in folds_df.groupby(group_cols, dropna=False):
+        pair, threshold, cost, policy, kind, execution, pair_scope = keys
+        g = events_df[(events_df.pair == pair) & (events_df.threshold_bps == threshold) &
+                      (events_df.cost_bps == cost) & (events_df.oos_kind == kind)]
         occupied = float(fold_subset.capital_occupancy_rate.mean()) if len(fold_subset) else np.nan
         diagnostics = {"capital_occupancy_rate": occupied,
                        "same_pair_blocked_overlap_signal_count": int(
                            fold_subset.same_pair_blocked_overlap_signal_count.sum()),
                        "cross_pair_overlapping_event_count": 0}
-        row = {"pair": pair, "cost_bps": cost, "oos_kind": kind,
-               "execution_model": EXECUTION_MODEL, "fold_count": fold_subset.fold_id.nunique()}
+        row = {"pair": pair, "threshold_bps": threshold, "cost_bps": cost,
+               "regime_policy": policy, "oos_kind": kind, "execution_model": execution,
+               "pair_scope": pair_scope, "fold_count": fold_subset.fold_id.nunique(),
+               "insufficient_train_fold_count": int(fold_subset.train_sample_status.eq(
+                   "INSUFFICIENT_TRAIN_SAMPLE").sum())}
         row.update(_summary_row(g, diagnostics, config, config.random_seed + int(cost)))
         aggregate_rows.append(row)
-    for (cost, kind), fold_subset in folds_df.groupby(["cost_bps", "oos_kind"], dropna=False):
-        g = events_df[(events_df.cost_bps == cost) & (events_df.oos_kind == kind)]
+    for (pair_scope, threshold, cost, policy, kind), fold_subset in folds_df.groupby(
+            ["pair_scope", "threshold_bps", "cost_bps", "regime_policy", "oos_kind"],
+            dropna=False):
+        g = events_df[(events_df.pair_scope == pair_scope) &
+                      (events_df.threshold_bps == threshold) &
+                      (events_df.cost_bps == cost) & (events_df.oos_kind == kind)]
         diagnostics = {
             # Mean per-pair occupancy: one unit of capital capacity per pair.
             "capital_occupancy_rate": float(fold_subset.capital_occupancy_rate.mean()),
@@ -486,8 +609,12 @@ def run_walk_forward(prices: pd.DataFrame, funding: pd.DataFrame | None = None,
                 fold_subset.same_pair_blocked_overlap_signal_count.sum()),
             "cross_pair_overlapping_event_count": _cross_pair_overlap_count(g),
         }
-        row = {"pair": "ALL_PAIRS", "cost_bps": cost, "oos_kind": kind,
-               "execution_model": EXECUTION_MODEL, "fold_count": fold_subset.fold_id.nunique()}
+        row = {"pair": f"ALL_{pair_scope}", "threshold_bps": threshold, "cost_bps": cost,
+               "regime_policy": policy, "oos_kind": kind,
+               "execution_model": EXECUTION_MODEL, "pair_scope": pair_scope,
+               "fold_count": fold_subset.fold_id.nunique(),
+               "insufficient_train_fold_count": int(fold_subset.train_sample_status.eq(
+                   "INSUFFICIENT_TRAIN_SAMPLE").sum())}
         row.update(_summary_row(g, diagnostics, config, config.random_seed + int(cost) + 10_000))
         aggregate_rows.append(row)
     aggregate = pd.DataFrame(aggregate_rows)
@@ -496,10 +623,11 @@ def run_walk_forward(prices: pd.DataFrame, funding: pd.DataFrame | None = None,
         "execution_model": EXECUTION_MODEL, "thresholds_bps": list(THRESHOLDS),
         "costs_bps": list(COSTS), "allowed_entry_regimes": sorted(ALLOWED_ENTRY_REGIMES),
         "forbidden_entry_regimes": sorted(FORBIDDEN_ENTRY_REGIMES),
-        "parameter_policy": "TRAIN_ONLY_THEN_FROZEN_FOR_TEST",
+        "parameter_policy": "FIXED_THRESHOLD_MAIN_NO_THRESHOLD_SELECTION",
+        "secondary_train_selected_threshold": False,
         "test_reselection_allowed": False,
         "historical_oos_label": PSEUDO_OOS, "future_oos_label": TRUE_OOS,
-        "future_oos_start": str(future_start) if future_start is not None else None,
+        "future_oos_start": None, "future_true_oos_enabled": False,
         "config": {k: (str(v) if isinstance(v, (pd.Timestamp,)) else v) for k, v in asdict(config).items()},
     }
     manifest["parameter_lock_sha256"] = hashlib.sha256((out / "frozen_parameters.csv").read_bytes()).hexdigest()
@@ -508,11 +636,14 @@ def run_walk_forward(prices: pd.DataFrame, funding: pd.DataFrame | None = None,
         "# High-threshold walk-forward\n\n"
         "所有历史测试 fold 均标为 `HISTORICAL_ROLLING_PSEUDO_OOS`；只有在参数已锁定后、"
         "且测试起点不早于显式 `future_oos_start` 的数据才标为 `FUTURE_TRUE_OOS`。\n\n"
-        "参数只读取训练窗，测试窗冻结；同一测试窗禁止按测试结果重选。信号由 bar close 确认，"
+        "主结果将100/150/200 bps作为三个独立固定场景，不进行跨阈值训练选择。Gate pair使用"
+        "Gate因果标签，非Gate pair明确标为NO_GATE_REGIME_FILTER。测试窗使用训练末尾lookback"
+        "作为warm-up，但只允许测试期信号。信号由 bar close 确认，"
         "仅使用下一根连续 bar open 作为成交代理。每个 pair 同时最多一个仓位。"
         "`same_pair_blocked_overlap_signal_count` 是持仓中被拦截的同 pair 信号；"
         "`cross_pair_overlapping_event_count` 是与其他 pair 仓位时间相交的已实现事件数。"
-        "资金占用率以每个 pair 一单位容量计算。历史 K 线不是 BBO。\n"
+        "资金占用率以每个 pair 一单位容量计算。未退出及无下一根bar的事件不会被删除；"
+        "主置信区间为day-block bootstrap，同时输出naive event bootstrap。历史 K 线不是 BBO。\n"
     )
     return {"events": events_df, "folds": folds_df, "aggregate": aggregate,
             "parameters": params_df, "output_dir": out}

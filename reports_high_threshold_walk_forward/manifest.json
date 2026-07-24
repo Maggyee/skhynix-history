@@ -18,20 +18,22 @@
     "STALE_OR_INVALID",
     "STRUCTURAL_PREMIUM"
   ],
-  "parameter_policy": "TRAIN_ONLY_THEN_FROZEN_FOR_TEST",
+  "parameter_policy": "FIXED_THRESHOLD_MAIN_NO_THRESHOLD_SELECTION",
+  "secondary_train_selected_threshold": false,
   "test_reselection_allowed": false,
   "historical_oos_label": "HISTORICAL_ROLLING_PSEUDO_OOS",
   "future_oos_label": "FUTURE_TRUE_OOS",
   "future_oos_start": null,
+  "future_true_oos_enabled": false,
   "config": {
     "train_bars": 672,
     "test_bars": 192,
     "step_bars": null,
-    "min_train_events": 2,
-    "bootstrap_samples": 500,
+    "min_train_events": 10,
+    "bootstrap_samples": 2000,
     "confidence_level": 0.95,
     "random_seed": 1729,
     "future_oos_start": null
   },
-  "parameter_lock_sha256": "b837fbbb2e849c301bba2c28981a72601027b066539fe0d2fd6811a5d3bef64c"
+  "parameter_lock_sha256": "07fe88630f179b795b76ecfc8770e2f9654523733d4069b38afd09dc86c76504"
 }
