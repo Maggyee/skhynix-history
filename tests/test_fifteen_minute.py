@@ -23,6 +23,84 @@ def _prices(types=("trade",)):
     return pd.DataFrame(rows)
 
 
+def _okx_array(timestamp, confirmed="1"):
+    t = int(pd.Timestamp(timestamp).timestamp() * 1000)
+    return [str(t), "100", "101", "99", "100", "1", "100", "100", confirmed]
+
+
+def test_okx_latest_page_forces_refresh_and_history_pages_use_cache(monkeypatch):
+    instances = []
+
+    class FakeHTTP:
+        def __init__(self, exchange):
+            self.calls = []
+            self.last_retrieved_at = None
+            instances.append(self)
+
+        def get(self, url, params, *, force_refresh=False, ttl=None):
+            self.calls.append((dict(params), force_refresh))
+            self.last_retrieved_at = "2026-07-24T03:00:00+00:00"
+            if "after" not in params:
+                rows = [_okx_array("2026-07-24T02:00Z"), _okx_array("2026-07-24T01:45Z")]
+                raw = "data/raw/okx/latest.json"
+            else:
+                rows = [_okx_array("2026-07-24T01:30Z"), _okx_array("2026-07-24T01:00Z")]
+                raw = "data/raw/okx/history.json"
+            return {"data": rows}, raw
+
+    monkeypatch.setattr(fm, "CachedHTTP", FakeHTTP)
+    rows = fm._download_okx_15m(
+        pd.Timestamp("2026-07-24T01:00Z"),
+        pd.Timestamp("2026-07-24T02:15Z"),
+        "SKHYNIX-USDT-SWAP",
+    )
+
+    assert [force for _, force in instances[0].calls] == [True, False] * 3
+    assert all("after" not in params for params, force in instances[0].calls if force)
+    assert all("after" in params for params, force in instances[0].calls if not force)
+    latest = [row for row in rows if row["open_time"] == pd.Timestamp("2026-07-24T02:00Z")]
+    assert latest
+    assert all(row["retrieved_at"] == "2026-07-24T03:00:00+00:00" for row in latest)
+    assert all(row["raw_file"] == "data/raw/okx/latest.json" for row in latest)
+
+
+def test_incremental_refresh_preserves_history_and_is_idempotent(monkeypatch, tmp_path):
+    monkeypatch.setattr(fm, "ROOT", tmp_path)
+    normalized = tmp_path / "data" / "normalized"
+    raw = tmp_path / "data" / "raw"
+    normalized.mkdir(parents=True)
+    raw.mkdir(parents=True)
+
+    old = _prices().copy()
+    old.to_parquet(normalized / "prices_15m.parquet", index=False)
+
+    meta = pd.DataFrame(
+        {"exchange": fm.EXCHANGES, "status": "active", "resolved_symbol": fm.EXCHANGES}
+    )
+    monkeypatch.setattr(fm, "discover_all", lambda: (meta, {}))
+
+    def downloader(exchange):
+        def run(start, end, symbol):
+            row = _prices()[lambda frame: frame.exchange == exchange].iloc[0].to_dict()
+            row["open_time"] = pd.Timestamp("2026-07-24T01:00Z")
+            row["close_time"] = row["open_time"] + fm.BAR - pd.Timedelta(milliseconds=1)
+            return [row]
+        return run
+
+    monkeypatch.setattr(
+        fm, "NATIVE_DOWNLOADERS", {exchange: downloader(exchange) for exchange in fm.EXCHANGES}
+    )
+    args = (pd.Timestamp("2026-07-24T01:00Z"), pd.Timestamp("2026-07-24T01:30Z"))
+    first = fm.download_native_prices_15m(*args)
+    second = fm.download_native_prices_15m(*args)
+
+    june_time = pd.Timestamp("2026-06-10T06:00Z")
+    assert (first.open_time == june_time).any()
+    assert len(first) == len(old) + len(fm.EXCHANGES)
+    assert len(second) == len(first)
+    assert not second.duplicated(["exchange", "symbol", "price_type", "open_time"]).any()
+
+
 def test_funding_only_loader_does_not_read_price_data(monkeypatch,tmp_path):
     funding_path=tmp_path/"funding.parquet";_funding().to_parquet(funding_path,index=False)
     monkeypatch.setattr(fm,"ROOT",tmp_path)
