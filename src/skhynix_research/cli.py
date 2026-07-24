@@ -34,7 +34,18 @@ def main(argv=None):
     live=sub.add_parser("collect-1m");live.add_argument("--forever",action="store_true");live.add_argument("--lookback-minutes",type=int,default=5);live.add_argument("--funding-lookback-hours",type=int,default=24);live.add_argument("--poll-seconds",type=int,default=60);live.add_argument("--grace-seconds",type=int,default=8)
     sub.add_parser("monitor-1m")
     sub.add_parser("report-live-1m")
+    sub.add_parser("collect-bbo")
+    paper_report=sub.add_parser("report-paper-bbo");paper_report.add_argument("--date",default=None)
     args=ap.parse_args(argv)
+    if args.cmd=="collect-bbo":
+        from .live_bbo import run
+        run();return 0
+    if args.cmd=="report-paper-bbo":
+        from .live_bbo import DATA_ROOT
+        from .paper_trading import PaperEngine, generate_daily_report
+        cfg=load_config();engine=PaperEngine(cfg["live_bbo"]["paper"],cfg["live_bbo"],DATA_ROOT)
+        day=args.date or pd.Timestamp.now(tz="UTC").date();md,csv=generate_daily_report(engine,day)
+        print(f"paper report={md}; trades={csv}");return 0
     if args.cmd=="collect-1m":
         if args.forever:
             run_forever(args.lookback_minutes,args.poll_seconds,args.grace_seconds,args.funding_lookback_hours);return 0
