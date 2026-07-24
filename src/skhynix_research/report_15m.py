@@ -28,6 +28,7 @@ plt.rcParams["font.family"] = ["WenQuanYi Zen Hei", "Unifont", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
 
 EXCHANGES = ("binance", "bitget", "gate", "hyperliquid", "okx")
+EXECUTION_MODEL = "NEXT_BAR_OPEN_PROXY"
 LABELS = {"binance": "Binance", "bitget": "Bitget", "gate": "Gate", "hyperliquid": "Hyperliquid", "okx": "OKX"}
 GATE_START = pd.Timestamp("2026-07-16T00:00:00Z")
 GATE_END = pd.Timestamp("2026-07-20T00:00:00Z")
@@ -106,6 +107,13 @@ def _table(headers, rows, classes="") -> str:
     head = "".join(f"<th>{html.escape(str(x))}</th>" for x in headers)
     body = "".join("<tr>" + "".join(f"<td>{html.escape(str(x))}</td>" for x in row) + "</tr>" for row in rows)
     return f'<div class="table-wrap"><table class="{classes}"><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>'
+
+
+def _main_joint(joint: pd.DataFrame) -> pd.DataFrame:
+    required = {"execution_model", "threshold_bps", "cost_bps", "sum_event_net_bps"}
+    if joint.empty or not required.issubset(joint.columns):
+        return pd.DataFrame()
+    return joint[(joint.execution_model == EXECUTION_MODEL) & (joint.threshold_bps == 20)].copy()
 
 
 def _figure(report_dir: Path, filename: str, title: str, subtitle: str, explanation: str) -> str:
@@ -199,16 +207,17 @@ def _save_charts(root: Path, report_dir: Path, data: dict[str, pd.DataFrame]) ->
             tail.set_ylabel("事件数"); fig.suptitle("20 bps基础事件持续时间：0—24小时主体与长尾")
             fig.tight_layout(); fig.savefig(chart_dir / "event_duration_20bps_15m.png", dpi=160, bbox_inches="tight"); plt.close(fig)
 
-    if not joint.empty and {"pair", "cost_bps", "total_net_bps", "win_rate"}.issubset(joint):
-        j = joint[joint.cost_bps.isin([20, 40, 80])].copy()
-        order = j[j.cost_bps == 20].sort_values("total_net_bps", ascending=False).pair.tolist()
+    j = _main_joint(joint)
+    if not j.empty and {"pair", "cost_bps", "sum_event_net_bps", "win_rate"}.issubset(j):
+        j = j[j.cost_bps.isin([20, 40, 80])].copy()
+        order = j[j.cost_bps == 20].sort_values("sum_event_net_bps", ascending=False).pair.tolist()
         if order:
-            fig, ax = plt.subplots(figsize=(12, 6)); sns.barplot(data=j, x="pair", y="total_net_bps", hue="cost_bps", order=order, palette="Blues_r", ax=ax)
-            ax.axhline(0, color="black", linewidth=.8); ax.tick_params(axis="x", rotation=35); ax.set_xlabel("组合"); ax.set_ylabel("累计净bps")
-            ax.set_title("联合策略成本敏感性：累计净bps（历史代理）"); fig.tight_layout(); fig.savefig(chart_dir / "joint_strategy_cost_comparison_15m.png", dpi=160, bbox_inches="tight"); plt.close(fig)
+            fig, ax = plt.subplots(figsize=(12, 6)); sns.barplot(data=j, x="pair", y="sum_event_net_bps", hue="cost_bps", order=order, palette="Blues_r", ax=ax)
+            ax.axhline(0, color="black", linewidth=.8); ax.tick_params(axis="x", rotation=35); ax.set_xlabel("组合"); ax.set_ylabel("累计事件净bps")
+            ax.set_title("20 bps价差触发阈值＋双所总往返成本敏感性\nNEXT_BAR_OPEN_PROXY累计事件净bps"); fig.tight_layout(); fig.savefig(chart_dir / "joint_strategy_cost_comparison_15m.png", dpi=160, bbox_inches="tight"); plt.close(fig)
             fig, ax = plt.subplots(figsize=(12, 6)); sns.barplot(data=j, x="pair", y="win_rate", hue="cost_bps", order=order, palette="Oranges_r", ax=ax)
             ax.set_ylim(0, 1); ax.tick_params(axis="x", rotation=35); ax.set_xlabel("组合"); ax.set_ylabel("正收益事件比例")
-            ax.set_title("联合策略成本敏感性：正收益事件比例（历史代理）"); fig.tight_layout(); fig.savefig(chart_dir / "joint_strategy_win_rate_15m.png", dpi=160, bbox_inches="tight"); plt.close(fig)
+            ax.set_title("20 bps价差触发阈值＋双所总往返成本敏感性\nNEXT_BAR_OPEN_PROXY正收益事件比例"); fig.tight_layout(); fig.savefig(chart_dir / "joint_strategy_win_rate_15m.png", dpi=160, bbox_inches="tight"); plt.close(fig)
 
 
 def _timeseries_chart(wide: pd.DataFrame, pairs: list[str], path: Path, title: str, gate_band: bool) -> None:
@@ -279,7 +288,8 @@ def build_15m_report_context(root: Path, report_dir: Path | None = None) -> dict
     funding_window = data["funding_coverage"].iloc[0] if not data["funding_coverage"].empty else pd.Series(dtype=object)
     top_funding = data["funding_matrix"].sort_values("cashflow_10000usd", ascending=False).head(5) if "cashflow_10000usd" in data["funding_matrix"] else pd.DataFrame()
     top_price = data["price"].sort_values("p95_abs_bps", ascending=False).head(5) if "p95_abs_bps" in data["price"] else pd.DataFrame()
-    top_joint = data["joint"][data["joint"].cost_bps == 20].sort_values("total_net_bps", ascending=False).head(1) if {"cost_bps", "total_net_bps"}.issubset(data["joint"]) else pd.DataFrame()
+    main_joint = _main_joint(data["joint"])
+    top_joint = main_joint[main_joint.cost_bps == 20].sort_values("sum_event_net_bps", ascending=False).head(1) if not main_joint.empty else pd.DataFrame()
     common_cycle, cycle_ranking = _latest_complete_8h(data["funding_events"])
     return {"root": root, "report_dir": report_dir, "files": files, **data, "window_row": window, "funding_window_row": funding_window,
             "top_funding": top_funding, "top_price": top_price, "top_joint": top_joint, "common_cycle": common_cycle, "cycle_ranking": cycle_ranking}
@@ -295,7 +305,7 @@ def render_summary_cards(c: dict) -> str:
         ("共同15分钟桶数", _format_count(w.get("strict_common_bar_count"))),
         ("资金费率策略第一名", f'多 {_label(topf.long_exchange)} / 空 {_label(topf.short_exchange)}<br>每 $10,000 累计 {format_money(topf.cashflow_10000usd)}' if topf is not None else "无可用数据"),
         ("价差P95第一名", f'{_label(topp.exchange_A)} / {_label(topp.exchange_B)}<br>P95 = {format_bps(topp.p95_abs_bps)}' if topp is not None else "无可用数据"),
-        ("20bps成本最佳联合组合", f'{html.escape(str(topj.pair))}<br>{format_bps(topj.total_net_bps)} · 胜率 {format_percent(topj.win_rate, True)} · 中位 {format_bps(topj.median_net_bps)}' if topj is not None else "无可用数据"),
+        ("20bps触发＋20bps总成本最佳", f'{html.escape(str(topj.pair))}<br>{format_bps(topj.sum_event_net_bps)} · 胜率 {format_percent(topj.win_rate, True)} · 中位 {format_bps(topj.median_event_net_bps)}' if topj is not None else "无可用数据"),
         ("数据口径警告", "成交收盘价 ≠ 可执行BBO", "warning"),
     ]
     return '<div class="summary-grid">' + "".join(f'<article class="summary-card {x[2] if len(x)>2 else ""}"><span>{x[0]}</span><strong>{x[1]}</strong></article>' for x in cards) + "</div>"
@@ -309,10 +319,10 @@ def _key_conclusions(c: dict) -> str:
         names = "、".join(_label(x) for x in c["top_price"].head(3).pair); gate_count = int(c["top_price"].head(5).pair.str.contains("gate", case=False).sum())
         items.append(("强结论", "strong", f"P95最高的三个组合为 {names}；它们描述价差尾部大小，不代表平均收益。"))
         items.append(("初步结论", "prelim", f"P95前五名中有 {gate_count} 个涉及Gate，Gate是高价差的重要来源；但陈旧成交价或结构性基差也可能造成这一现象。"))
-    j = c["joint"]
-    if not j.empty and {"cost_bps", "total_net_bps"}.issubset(j):
-        p20 = int((j[j.cost_bps == 20].total_net_bps > 0).sum()); p40 = int((j[j.cost_bps == 40].total_net_bps > 0).sum())
-        items.append(("初步结论", "prelim", f"累计净值为正的组合从20bps成本下 {p20} 个降至40bps下 {p40} 个，结果对交易成本明显敏感。"))
+    j = _main_joint(c["joint"])
+    if not j.empty:
+        p20 = int((j[j.cost_bps == 20].sum_event_net_bps > 0).sum()); p40 = int((j[j.cost_bps == 40].sum_event_net_bps > 0).sum())
+        items.append(("初步结论", "prelim", f"20bps触发场景中，累计事件净值为正的组合从双所总成本20bps下 {p20} 个降至40bps下 {p40} 个，结果对交易成本明显敏感。"))
     items.append(("无法确认", "unknown", "现有数据没有历史BBO、盘口深度和实际成交路径，当前证据不足以支持实盘可获利结论。"))
     return '<ul class="conclusions">' + "".join(f'<li><span class="tag {css}">{tag}</span>{text}</li>' for tag, css, text in items) + "</ul>"
 
@@ -385,21 +395,28 @@ def render_duration_section(c: dict) -> str:
 
 
 def render_strategy_section(c: dict) -> str:
-    j = c["joint"]
+    j = _main_joint(c["joint"])
     tables = []
     positive_text = []
     for cost in [20, 40, 80]:
-        q = j[j.cost_bps == cost].sort_values("total_net_bps", ascending=False).head(5) if not j.empty and "cost_bps" in j else pd.DataFrame()
-        rows = [[i, r.pair, format_bps(r.total_net_bps), format_percent(r.win_rate, True), format_bps(r.median_net_bps), int(r.event_count)] for i, r in enumerate(q.itertuples(), 1)]
-        tables.append(f'<h3>{cost}bps成本前5名</h3>' + _table(["排名","组合","累计净bps","胜率","单事件中位净bps","事件数"], rows))
-        positives = j[(j.cost_bps == cost) & (j.total_net_bps > 0)].pair.tolist() if not j.empty else []
-        positive_text.append(f'{cost}bps：{"、".join(positives) if positives else "无组合累计为正"}')
-    top20 = j[j.cost_bps == 20].sort_values("total_net_bps", ascending=False).head(3) if not j.empty else pd.DataFrame()
-    top_text = "、".join(f'{r.pair}（{format_bps(r.total_net_bps)}）' for r in top20.itertuples()) or "暂无数据"
-    explanation = f'20bps前三名：{top_text}。{"；".join(positive_text)}。累计正而单事件中位数为负，通常表示少数大事件覆盖了多数亏损事件。事件可能重叠，因此total_net_bps不能视为单账户收益率。当前价格收益使用事件峰值减离场价差，包含事件发生后的峰值信息；当前收益可能使用事件峰值信息，不能视为无偏策略回测。'
+        q = j[j.cost_bps == cost].sort_values("sum_event_net_bps", ascending=False).head(5) if not j.empty else pd.DataFrame()
+        rows = [[i, r.pair, f"{int(r.threshold_bps)} bps", f"{int(r.cost_bps)} bps",
+                 int(r.realized_event_count), int(r.censored_event_count), format_bps(r.sum_event_net_bps),
+                 format_bps(r.mean_event_net_bps), format_bps(r.median_event_net_bps),
+                 format_percent(r.win_rate, True), f"{r.median_holding_minutes:,.2f} 分钟"]
+                for i, r in enumerate(q.itertuples(), 1)]
+        tables.append(f'<h3>20bps触发＋{cost}bps双所总成本前5名</h3>' + _table(
+            ["排名","组合","触发阈值","总成本","已实现事件数","删失事件数","累计事件净bps",
+             "单事件平均净bps","单事件中位净bps","胜率","中位持仓时间"], rows))
+        positives = j[(j.cost_bps == cost) & (j.sum_event_net_bps > 0)].pair.tolist() if not j.empty else []
+        positive_text.append(f'双所总成本{cost}bps：{"、".join(positives) if positives else "无组合累计为正"}')
+    top20 = j[j.cost_bps == 20].sort_values("sum_event_net_bps", ascending=False).head(3) if not j.empty else pd.DataFrame()
+    top_text = "、".join(f'{r.pair}（{format_bps(r.sum_event_net_bps)}）' for r in top20.itertuples()) or "暂无数据"
+    explanation = f'固定采用NEXT_BAR_OPEN_PROXY和20bps价差触发阈值。双所总往返成本20bps下前三名：{top_text}。{"；".join(positive_text)}。主联合策略使用15分钟收盘确认信号，并在下一根连续15分钟K线开盘成交，不使用事件峰值作为入场价格。下一根open仍是历史K线代理，两家交易所不一定在同一毫秒成交，且不包含盘口深度和真实滑点。多个事件可能重叠，sum_event_net_bps不能视为单账户收益率。资金费率使用真实结算事件；20/40/80bps均是整套双所开仓和平仓的总往返成本，只整体扣减一次。'
     return f'''<section id="strategy"><h2>7. 价格＋资金费率联合策略</h2><div class="proxy"><strong>历史代理策略，不是实盘回测。</strong></div>
-    {_figure(c["report_dir"], "joint_strategy_cost_comparison_15m.png", "联合策略成本比较：累计净bps", "每个组合比较20/40/80bps成本。", explanation)}
-    {_figure(c["report_dir"], "joint_strategy_win_rate_15m.png", "联合策略成本比较：正收益事件比例", "胜率与累计净值分图展示，避免混淆量纲。", "成本越高，正收益事件比例通常越低。该指标仍不包含盘口成交约束。")}
+    <div class="warning"><strong>算法修正：</strong>本报告联合策略已从事后峰值算法修正为NEXT_BAR_OPEN_PROXY；新旧结果不可直接比较。</div>
+    {_figure(c["report_dir"], "joint_strategy_cost_comparison_15m.png", "20 bps价差触发阈值＋双所总往返成本敏感性", "固定20bps触发阈值，分别比较整套双所总往返成本20/40/80bps。", explanation)}
+    {_figure(c["report_dir"], "joint_strategy_win_rate_15m.png", "20 bps触发场景：正收益事件比例", "胜率与累计事件净值分图展示，避免混淆量纲。", "只有REALIZED事件进入胜率；删失事件保留在覆盖统计中。成本越高，正收益事件比例通常越低。")}
     {''.join(tables)}</section>'''
 
 
@@ -409,7 +426,7 @@ def render_limitations_section(c: dict) -> str:
     <article><h3>可以确认</h3><ul><li>五家15分钟价格的长期相对层级</li><li>统一窗口的历史资金费率差</li><li>哪些组合对成本最敏感</li></ul></article>
     <article class="muted"><h3>不能确认</h3><ul><li>当时真实买一卖一价与可成交容量</li><li>滑点、排队、单腿成交风险</li><li>保证金与强平风险</li></ul></article>
     <article><h3>下一步</h3><ul><li>实时BBO与五档盘口</li><li>1秒同步快照</li><li>按$1,000/$5,000/$10,000计算实际吃单成本</li></ul></article></div>
-    <details><summary>技术明细</summary><p>价格为五家严格共同时间戳上的原生15分钟成交收盘价；资金为真实结算事件；联合策略使用基础事件代理。测试状态以仓库最近一次pytest结果为准。</p>
+    <details><summary>技术明细</summary><p>价格为五家严格共同时间戳上的原生15分钟OHLC；联合策略用收盘确认信号、下一根连续K线open执行，资金只累计实际持仓严格边界内的真实结算事件。删失事件不进入收益汇总。测试状态以仓库最近一次pytest结果为准。</p>
     {_table(["数据文件","状态"], file_rows)}</details></section>'''
 
 

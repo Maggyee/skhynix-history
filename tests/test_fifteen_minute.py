@@ -130,7 +130,7 @@ def _report_artifacts(tmp_path):
     pd.DataFrame([{"group_type":"ALL","group_value":"ALL_OBSERVED","event_count_total":12,"median_minutes":90,"p90_minutes":165,"p95_minutes":180,"max_observed_minutes":180,"ratio_le_60m":.3333,"ratio_le_240m":1,"ratio_gt_1440m":0}]).to_csv(r15/"event_duration_summary_20bps_15m.csv",index=False)
     joint=[]
     for cost in [20,40,80]:
-        for i,p in enumerate(pd.DataFrame(price).pair): joint.append({"pair":p,"cost_bps":cost,"event_count":10,"win_rate":.5-i*.01,"total_net_bps":1000-cost*10-i,"median_net_bps":5-cost})
+        for i,p in enumerate(pd.DataFrame(price).pair): joint.append({"analysis_scope":"PRICE_FUNDING_15M_GLOBAL_WINDOW","execution_model":"NEXT_BAR_OPEN_PROXY","pair":p,"threshold_bps":20,"cost_bps":cost,"event_count_total":11,"realized_event_count":10,"censored_event_count":1,"positive_event_count":5,"win_rate":.5-i*.01,"sum_event_net_bps":1000-cost*10-i,"mean_event_net_bps":10-cost,"median_event_net_bps":5-cost,"p05_event_net_bps":-30,"p95_event_net_bps":40,"mean_holding_minutes":45,"median_holding_minutes":30,"max_holding_minutes":120,"joint_start":"2026-06-10T08:00:00Z","joint_end":"2026-06-11T08:00:00Z"})
     pd.DataFrame(joint).to_csv(r15/"joint_strategy_summary_15m.csv",index=False)
     funding=[]
     for i,(a,b) in enumerate(__import__('itertools').permutations(fm.EXCHANGES,2)):
@@ -155,18 +155,20 @@ def test_decision_report_structure_and_offline_assets(tmp_path):
     assert "SKHYNIX 五家交易所 15分钟历史研究" in doc
     assert "<pre" not in doc and "&lt;h1&gt;" not in doc
     assert "2026-06-10 06:00:00 UTC" in doc and ".123456" not in doc
-    assert "20bps成本前5名" in doc and "40bps成本前5名" in doc and "80bps成本前5名" in doc
+    assert "20bps触发＋20bps双所总成本前5名" in doc and "20bps触发＋40bps双所总成本前5名" in doc and "20bps触发＋80bps双所总成本前5名" in doc
     assert "历史15分钟成交收盘价不是当时可执行BBO" in doc
     assert re.findall(r'<img[^>]+src="(.*?)"',doc)
     assert all(src.startswith("data:image/png;base64,") for src in re.findall(r'<img[^>]+src="(.*?)"',doc))
     assert not re.search(r'<(?:link|script)[^>]+(?:href|src)="https?://',doc)
     assert not re.search(r'(?i)(?:>|\s)(nan|[+-]?inf)(?:<|\s)',doc)
+    assert "NEXT_BAR_OPEN_PROXY" in doc and "20/40/80bps均是整套双所开仓和平仓的总往返成本" in doc
+    assert "当前价格收益使用事件峰值减离场价差" not in doc
 
 
 def test_report_top_n_matches_csv_and_is_idempotent(tmp_path):
     r15=_report_artifacts(tmp_path);path=write_15m_report(tmp_path,r15);first=path.read_bytes()
     doc=first.decode(); assert "200.00" in doc and "100.00 bps" in doc
-    blocks=re.findall(r'<h3>(?:20|40|80)bps成本前5名</h3>(.*?)(?=<h3>|</section>)',doc,re.S)
+    blocks=re.findall(r'<h3>20bps触发＋(?:20|40|80)bps双所总成本前5名</h3>(.*?)(?=<h3>|</section>)',doc,re.S)
     assert len(blocks)==3
     assert all(re.search(r"<tbody>(.*?)</tbody>",block,re.S).group(1).count("<tr>") <= 5 for block in blocks)
     write_15m_report(tmp_path,r15);assert path.read_bytes()==first
@@ -176,3 +178,140 @@ def test_report_survives_missing_csv(tmp_path):
     r15=_report_artifacts(tmp_path);(r15/"joint_strategy_summary_15m.csv").unlink()
     path=write_15m_report(tmp_path,r15);doc=path.read_text()
     assert path.exists() and "无可用数据" in doc and "历史代理策略，不是实盘回测" in doc
+
+
+def test_report_main_ranking_filters_model_and_20bps_threshold(tmp_path):
+    r15=_report_artifacts(tmp_path);path=r15/"joint_strategy_summary_15m.csv";j=pd.read_csv(path)
+    fake=j.iloc[0].copy();fake["pair"]="forbidden/threshold";fake["threshold_bps"]=50;fake["sum_event_net_bps"]=999999
+    fake_model=j.iloc[0].copy();fake_model["pair"]="forbidden/model";fake_model["execution_model"]="LOOKAHEAD";fake_model["sum_event_net_bps"]=999999
+    pd.concat([j,pd.DataFrame([fake,fake_model])],ignore_index=True).to_csv(path,index=False)
+    doc=write_15m_report(tmp_path,r15).read_text()
+    assert "forbidden/threshold" not in doc and "forbidden/model" not in doc
+
+
+def _execution_inputs(signal_positive=True, times=None, exit_open=(101,101), funding=None, peak=999):
+    times = list(times or pd.date_range("2026-06-10T00:00Z", periods=4, freq="15min"))
+    rows=[]
+    # Signal at t0, execution at t1, convergence close signal at t2,
+    # and execution exit at t3.  Tuple order is exchange A/B.
+    signal_close=(100.22,100) if signal_positive else (100,100.22)
+    entry_open=(102,100) if signal_positive else (100,102)
+    for ex_i,ex in enumerate(("binance","bitget")):
+        for i,t in enumerate(times):
+            if i==0: op=100;cl=signal_close[ex_i]
+            elif i==1: op=entry_open[ex_i];cl=entry_open[ex_i]
+            elif i==2: op=101;cl=101
+            else: op=exit_open[ex_i];cl=exit_open[ex_i]
+            rows.append({"exchange":ex,"price_type":"trade","open_time":t,"open":op,"high":max(op,cl)+1,"low":min(op,cl)-1,"close":cl})
+    aligned=pd.DataFrame(rows)
+    base=pd.DataFrame([{"base_event_id":"base-1","pair":"binance/bitget","threshold_bps":20,
+        "event_start":times[0],"event_end":times[min(1,len(times)-1)],"peak_abs_spread_bps":abs(peak),
+        "peak_spread_bps":peak,"comparison_quality":"STRICT_NATIVE_15M_BARS"}])
+    funding = funding if funding is not None else pd.DataFrame(columns=["exchange","funding_time","funding_rate"])
+    return aligned,base,funding,times
+
+
+def _run_execution(signal_positive=True, **kwargs):
+    aligned,base,funding,times=_execution_inputs(signal_positive=signal_positive,**kwargs)
+    return fm._joint_events(aligned,base,funding,times[0],times[-1]+pd.Timedelta(minutes=15)).iloc[0]
+
+
+def test_next_bar_open_entry_and_positive_signal_direction():
+    r=_run_execution(True)
+    assert r.status=="REALIZED" and r.entry_exec_time==pd.Timestamp("2026-06-10T00:15Z")
+    assert r.signal_close_spread_bps>20 and r.signal_direction=="SHORT_A_LONG_B"
+    assert r.long_exchange=="bitget" and r.short_exchange=="binance"
+    assert r.entry_long_price==100 and r.entry_short_price==102
+
+
+def test_negative_signal_goes_long_a_short_b():
+    r=_run_execution(False)
+    assert r.signal_close_spread_bps < -20 and r.signal_direction=="LONG_A_SHORT_B"
+    assert r.long_exchange=="binance" and r.short_exchange=="bitget"
+    assert r.entry_long_price==100 and r.entry_short_price==102
+    expected=(101/100-1 + 1-101/102)*10_000
+    assert r.gross_price_pnl_bps==pytest.approx(expected) and r.signed_spread_change_bps>0
+
+
+def test_peak_field_never_changes_joint_returns():
+    a=_run_execution(True,peak=25);b=_run_execution(True,peak=5000)
+    for field in ["gross_price_pnl_bps","funding_cashflow_bps","combined_gross_bps","net_after_cost_20bps","mae_price_bps","mfe_price_bps"]:
+        assert getattr(a,field)==pytest.approx(getattr(b,field))
+
+
+def test_two_leg_formula_preserves_price_losses_and_cost_is_once():
+    r=_run_execution(True,exit_open=(103,99))
+    expected=(99/100-1 + 1-103/102)*10_000
+    assert expected<0 and r.gross_price_pnl_bps==pytest.approx(expected)
+    assert r.combined_gross_bps==pytest.approx(expected)
+    assert r.net_after_cost_20bps==pytest.approx(expected-20)
+    assert r.net_after_cost_40bps==pytest.approx(expected-40)
+    assert r.net_after_cost_80bps==pytest.approx(expected-80)
+
+
+def test_two_leg_profitable_formula_matches_manual_calculation():
+    # Long Bitget enters 100/exits 101; short Binance enters 102/exits 101.
+    r=_run_execution(True,exit_open=(101,101))
+    expected=(101/100-1 + 1-101/102)*10_000
+    assert r.gross_price_pnl_bps==pytest.approx(expected)
+    assert r.long_return==pytest.approx(.01)
+    assert r.short_return==pytest.approx(1-101/102)
+
+
+def test_missing_next_entry_open_is_censored():
+    t=[pd.Timestamp("2026-06-10T00:00Z")]
+    aligned,base,funding,_=_execution_inputs(times=t)
+    r=fm._joint_events(aligned,base,funding,t[0],t[0]+pd.Timedelta(hours=1)).iloc[0]
+    assert r.status=="NO_NEXT_BAR_FOR_ENTRY" and not r.is_realized
+
+
+def test_missing_next_exit_open_is_censored():
+    t=list(pd.date_range("2026-06-10T00:00Z",periods=2,freq="15min"))
+    aligned,base,funding,_=_execution_inputs(times=t)
+    # The entry bar itself supplies the below-threshold exit signal.
+    aligned.loc[aligned.open_time==t[1],"close"]=101
+    r=fm._joint_events(aligned,base,funding,t[0],t[0]+pd.Timedelta(hours=1)).iloc[0]
+    assert r.status=="NO_NEXT_BAR_FOR_EXIT" and not r.is_realized
+
+
+def test_gap_during_hold_is_censored_without_bridging():
+    t=[pd.Timestamp("2026-06-10T00:00Z"),pd.Timestamp("2026-06-10T00:15Z"),pd.Timestamp("2026-06-10T00:45Z")]
+    aligned,base,funding,_=_execution_inputs(times=t)
+    # Keep entry-bar spread active so the missing 00:30 bar is encountered.
+    r=fm._joint_events(aligned,base,funding,t[0],t[-1]+pd.Timedelta(minutes=15)).iloc[0]
+    assert r.status=="DATA_GAP_DURING_HOLD" and not r.is_realized
+
+
+def test_funding_uses_strict_execution_boundaries_and_leg_signs():
+    f=pd.DataFrame([
+        {"exchange":"bitget","funding_time":pd.Timestamp("2026-06-10T00:10Z"),"funding_rate":.9},
+        {"exchange":"bitget","funding_time":pd.Timestamp("2026-06-10T00:15Z"),"funding_rate":.8},
+        {"exchange":"bitget","funding_time":pd.Timestamp("2026-06-10T00:30Z"),"funding_rate":.001},
+        {"exchange":"binance","funding_time":pd.Timestamp("2026-06-10T00:30Z"),"funding_rate":.002},
+        {"exchange":"binance","funding_time":pd.Timestamp("2026-06-10T00:45Z"),"funding_rate":.7},
+    ])
+    r=_run_execution(True,funding=f)
+    assert r.entry_exec_time==pd.Timestamp("2026-06-10T00:15Z") and r.exit_exec_time==pd.Timestamp("2026-06-10T00:45Z")
+    assert r.long_funding_event_count==1 and r.short_funding_event_count==1
+    assert r.sum_long_funding==pytest.approx(.001) and r.sum_short_funding==pytest.approx(.002)
+    assert r.funding_cashflow_bps==pytest.approx(10)  # -long + short
+
+
+def test_thresholds_are_separate_and_only_realized_events_are_summarized():
+    r=_run_execution(True)
+    rows=[]
+    for threshold in [20,50,100,150,200]:
+        x=r.to_dict();x["threshold_bps"]=threshold;x["strategy_event_id"]=f"r-{threshold}";rows.append(x)
+        y=x.copy();y["strategy_event_id"]=f"c-{threshold}";y["status"]="RIGHT_CENSORED";y["is_realized"]=False;y["net_after_cost_20bps"]=999999;rows.append(y)
+    summary=fm._summarize_joint_events(pd.DataFrame(rows),pd.Timestamp("2026-06-10T00:00Z"),pd.Timestamp("2026-06-11T00:00Z"))
+    assert set(summary.threshold_bps)=={20,50,100,150,200} and len(summary)==15
+    assert summary.realized_event_count.eq(1).all() and summary.censored_event_count.eq(1).all()
+    assert summary[summary.cost_bps==20].sum_event_net_bps.eq(r.net_after_cost_20bps).all()
+
+
+def test_strategy_event_ids_and_results_are_idempotent():
+    aligned,base,funding,times=_execution_inputs()
+    first=fm._joint_events(aligned,base,funding,times[0],times[-1]+pd.Timedelta(minutes=15))
+    second=fm._joint_events(aligned,base,funding,times[0],times[-1]+pd.Timedelta(minutes=15))
+    pd.testing.assert_frame_equal(first,second)
+    assert first.strategy_event_id.is_unique
