@@ -2,10 +2,10 @@
 
 ## 1. 直接结论
 
-- **高置信度**：严格3-of-3外部基准窗口为 `2026-06-10 06:00:00+00:00` 至 `2026-07-24 03:00:00+00:00`（左闭右开）。首次连续阈值事件：50bps=2026-06-23 00:45, 100bps=2026-06-23 07:00, 150bps=2026-06-24 01:45, 200bps=2026-06-24 23:30 UTC；数据驱动上移候选在 6月22—24日，因此7月16日不是起点。
-- **高置信度**：这是长期结构性Gate基差叠加波动regime。Gate/外部中位数P95在 PRE 为 204.3 bps、7/16—20 为 176.5 bps、POST 为 16.1 bps；7/16工作日延续高位，但完整预设窗口不是相对PRE的额外放大，7/17后的下移才是最强变点。
+- **高置信度**：严格3-of-3外部基准窗口为 `2026-06-10 06:00:00+00:00` 至 `2026-07-24 04:15:00+00:00`（左闭右开）。首次连续阈值事件：50bps=2026-06-23 00:45, 100bps=2026-06-23 07:00, 150bps=2026-06-24 01:45, 200bps=2026-06-24 23:30 UTC；数据驱动上移候选在 6月22—24日，因此7月16日不是起点。
+- **高置信度**：这是长期结构性Gate基差叠加波动regime。Gate/外部中位数P95在 PRE 为 204.3 bps、7/16—20 为 176.5 bps、POST 为 16.9 bps；7/16工作日延续高位，但完整预设窗口不是相对PRE的额外放大，7/17后的下移才是最强变点。
 - **中等置信度**：7/16—20典型偏差最大层为 `gate_mark_minus_gate_index`，尾部P95最大层为 `gate_index_minus_external_market`；PRE主要是index-market层。对称bps分量不是严格可加，残差已单列。
-- **高置信度**：低15分钟成交量和陈旧trade close不足以解释；高溢价桶落入最低成交量十分位的最高分段占比仅 5.00%。由于缺少历史BBO和深度，订单簿流动性仍无法确认。相关性不作因果解释。
+- **高置信度**：低15分钟成交量和陈旧trade close不足以解释；高溢价桶落入最低成交量十分位的最高分段占比仅 1.18%。由于缺少历史BBO和深度，订单簿流动性仍无法确认。相关性不作因果解释。
 - **高置信度**：数据错误判定为 `DATA_ERROR_NOT_SUPPORTED`（个别不可验证项仍为 INCONCLUSIVE）。
 - **无法确认**：15分钟成交收盘不是BBO；没有历史bid/ask和深度，不能确认实际可成交价差或容量。
 
@@ -21,11 +21,11 @@
 
 | retrospective_segment | start_time | end_time | analysis_scope | strategy_eligible |
 | --- | --- | --- | --- | --- |
-| BASELINE | 2026-06-10 06:00:00+00:00 | 2026-06-29 13:00:00+00:00 | RETROSPECTIVE_CHANGE_POINTS | False |
-| BUILDUP | 2026-06-29 13:00:00+00:00 | 2026-07-12 08:00:00+00:00 | RETROSPECTIVE_CHANGE_POINTS | False |
-| STRUCTURAL_PREMIUM | 2026-07-12 08:00:00+00:00 | 2026-07-12 20:00:00+00:00 | RETROSPECTIVE_CHANGE_POINTS | False |
-| NORMALIZATION | 2026-07-12 20:00:00+00:00 | 2026-07-13 08:00:00+00:00 | RETROSPECTIVE_CHANGE_POINTS | False |
-| POST_NORMALIZATION | 2026-07-13 08:00:00+00:00 | 2026-07-24 03:15:00+00:00 | RETROSPECTIVE_CHANGE_POINTS | False |
+| BASELINE | 2026-06-10 06:00:00+00:00 | 2026-06-29 12:45:00+00:00 | RETROSPECTIVE_CHANGE_POINTS | False |
+| BUILDUP | 2026-06-29 12:45:00+00:00 | 2026-07-11 07:30:00+00:00 | RETROSPECTIVE_CHANGE_POINTS | False |
+| STRUCTURAL_PREMIUM | 2026-07-11 07:30:00+00:00 | 2026-07-12 07:30:00+00:00 | RETROSPECTIVE_CHANGE_POINTS | False |
+| NORMALIZATION | 2026-07-12 07:30:00+00:00 | 2026-07-13 07:30:00+00:00 | RETROSPECTIVE_CHANGE_POINTS | False |
+| POST_NORMALIZATION | 2026-07-13 07:30:00+00:00 | 2026-07-24 04:30:00+00:00 | RETROSPECTIVE_CHANGE_POINTS | False |
 
 ### 2.3 因果实时标签统计
 
@@ -33,7 +33,7 @@
 
 | causal_regime | bar_count |
 | --- | --- |
-| NORMAL | 4129 |
+| NORMAL | 4134 |
 | TRANSIENT_DISLOCATION | 0 |
 | STRUCTURAL_PREMIUM | 0 |
 | STALE_OR_INVALID | 84 |
@@ -42,33 +42,33 @@
 
 | regime | gate/binance | gate/bitget | gate/hyperliquid | gate/okx |
 | --- | --- | --- | --- | --- |
-| GATE_REGIME_20260716_20260720 | 176.9 | 173.5 | 229.9 | 200.4 |
-| POST_20260720 | 18.1 | 19.4 | 44.2 | 26.9 |
+| GATE_REGIME_20260716_20260720 | 176.9 | 172.2 | 229.9 | 200.4 |
+| POST_20260720 | 18.4 | 19.4 | 44.0 | 26.8 |
 | PRE_20260716 | 205.1 | 183.8 | 256.3 | 222.6 |
 
 ### trade / mark / index 分解中位数（bps）
 
 | regime | decomposition_residual | gate_index_minus_external_market | gate_mark_minus_gate_index | gate_trade_minus_gate_mark | total_gate_trade_vs_market |
 | --- | --- | --- | --- | --- | --- |
-| GATE_REGIME_20260716_20260720 | -0.00 | 3.87 | 23.96 | 0.86 | 36.19 |
-| POST_20260720 | 0.00 | -3.09 | 5.24 | 0.77 | 4.85 |
-| PRE_20260716 | -0.00 | 38.05 | 7.58 | 0.56 | 57.78 |
+| GATE_REGIME_20260716_20260720 | -0.00 | 3.87 | 23.40 | 0.86 | 36.02 |
+| POST_20260720 | 0.00 | -2.98 | 5.33 | 0.77 | 4.97 |
+| PRE_20260716 | -0.00 | 38.05 | 7.61 | 0.56 | 57.81 |
 
 ## 2. 已由数据确认
 
 - 主比较只用原生15分钟trade close，完全相同 `open_time`；未填充缺口。外部trade中位数固定为 binance, bitget, okx 且要求严格3-of-3齐全；两家结果只在 sensitivity CSV 单列。
 - 外部mark中位数只含 Binance、Bitget、OKX；Hyperliquid没有可比历史mark，未加入。
-- KRX实际交易日历重开后1小时的溢价变化中位数（负数为收敛）：PRE_20260716=13.4bps, GATE_REGIME_20260716_20260720=-5.3bps, POST_20260720=-5.1bps；并非所有regime都在开盘后系统性收敛。周末、工作日、美国时段与UTC小时的完整分组见 sessions CSV。
+- KRX实际交易日历重开后1小时的溢价变化中位数（负数为收敛）：PRE_20260716=11.8bps, GATE_REGIME_20260716_20260720=-5.3bps, POST_20260720=-5.1bps；并非所有regime都在开盘后系统性收敛。周末、工作日、美国时段与UTC小时的完整分组见 sessions CSV。
 - 自动变点候选共 53 个；最高置信候选如下：
 
 | change_time | pre_median_bps | post_median_bps | median_shift_bps | pre_p95_abs_bps | post_p95_abs_bps | confidence_metric | method | analysis_scope | uses_pre_and_post_windows | uses_full_sample | strategy_eligible |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 2026-07-13 08:00:00+00:00 | 205.23 | 149.14 | -56.09 | 258.11 | 260.70 | 97.84 | robust_cusum | RETROSPECTIVE_CHANGE_POINTS | True | True | False |
-| 2026-07-12 08:00:00+00:00 | 202.54 | 205.23 | 2.69 | 217.14 | 258.11 | 82.67 | robust_cusum | RETROSPECTIVE_CHANGE_POINTS | True | True | False |
-| 2026-07-12 20:00:00+00:00 | 203.42 | 215.94 | 12.52 | 217.14 | 262.07 | 79.56 | robust_cusum | RETROSPECTIVE_CHANGE_POINTS | True | True | False |
-| 2026-06-29 13:00:00+00:00 | 160.69 | 133.94 | -26.74 | 268.09 | 170.74 | 79.52 | robust_cusum | RETROSPECTIVE_CHANGE_POINTS | True | True | False |
-| 2026-07-11 08:00:00+00:00 | 198.84 | 202.54 | 3.70 | 212.47 | 217.14 | 79.40 | robust_cusum | RETROSPECTIVE_CHANGE_POINTS | True | True | False |
-| 2026-07-11 20:00:00+00:00 | 200.68 | 203.42 | 2.74 | 211.26 | 217.14 | 76.25 | robust_cusum | RETROSPECTIVE_CHANGE_POINTS | True | True | False |
+| 2026-07-13 07:30:00+00:00 | 204.80 | 149.35 | -55.46 | 248.41 | 261.52 | 97.15 | robust_cusum | RETROSPECTIVE_CHANGE_POINTS | True | True | False |
+| 2026-07-12 07:30:00+00:00 | 202.52 | 204.80 | 2.28 | 217.14 | 248.41 | 83.69 | robust_cusum | RETROSPECTIVE_CHANGE_POINTS | True | True | False |
+| 2026-06-29 12:45:00+00:00 | 160.69 | 138.48 | -22.21 | 268.09 | 170.74 | 80.91 | robust_cusum | RETROSPECTIVE_CHANGE_POINTS | True | True | False |
+| 2026-07-11 07:30:00+00:00 | 199.20 | 202.52 | 3.32 | 212.47 | 217.14 | 80.51 | robust_cusum | RETROSPECTIVE_CHANGE_POINTS | True | True | False |
+| 2026-07-12 19:30:00+00:00 | 203.50 | 215.94 | 12.45 | 217.14 | 262.07 | 80.27 | robust_cusum | RETROSPECTIVE_CHANGE_POINTS | True | True | False |
+| 2026-07-11 19:30:00+00:00 | 199.93 | 203.50 | 3.56 | 211.26 | 217.14 | 76.51 | robust_cusum | RETROSPECTIVE_CHANGE_POINTS | True | True | False |
 
 - 连续阈值事件的end_time为右开边界，持续时间严格为15分钟倍数。
 
@@ -112,56 +112,56 @@
 
 | check | evidence | conclusion |
 | --- | --- | --- |
-| quarter_hour_alignment | aligned=True; rows=12639 | DATA_ERROR_NOT_SUPPORTED |
+| quarter_hour_alignment | aligned=True; rows=12654 | DATA_ERROR_NOT_SUPPORTED |
 | duplicate_timestamps | duplicate rows=0 | DATA_ERROR_NOT_SUPPORTED |
 | missing_buckets | index:0; mark:0; trade:0 | DATA_ERROR_NOT_SUPPORTED |
 | pagination_order | normalized rows are sorted; raw API page ordering is not preserved as a column (observed backward count after normalization=0) | INCONCLUSIVE |
 | seconds_milliseconds | implausible years=0 | DATA_ERROR_NOT_SUPPORTED |
-| price_multiplier_1000 | median Gate/external ratios=1.004751,1.003474,1.006051 | DATA_ERROR_NOT_SUPPORTED |
+| price_multiplier_1000 | median Gate/external ratios=1.004743,1.003421,1.006032 | DATA_ERROR_NOT_SUPPORTED |
 | trade_mark_index_symbol | {"index": "SKHYNIX_USDT", "mark": "SKHYNIX_USDT", "trade": "SKHYNIX_USDT"} | DATA_ERROR_NOT_SUPPORTED |
 | ohlc_invariants | violations=0 | DATA_ERROR_NOT_SUPPORTED |
 | zero_or_missing_volume | ratio=0.0000% | DATA_ERROR_NOT_SUPPORTED |
 | trade_count_availability | trade_count column is absent from native 15m schema | INCONCLUSIVE |
 | extremes_at_low_volume | lowest-volume-decile share among top-5% premium=1.4354% | INCONCLUSIVE |
 | extremes_after_stale_trade | first-price-change share among top-5% premium=1.9139% | INCONCLUSIVE |
-| discrete_ratio_steps | {"1.0":0.1637497003,"1.001":0.1532006713,"0.999":0.0477103812,"1.002":0.0472308799,"1.005":0.0467513786} | INCONCLUSIVE |
+| discrete_ratio_steps | {"1.0":0.1621168582,"1.001":0.1542145594,"1.002":0.0486111111,"0.999":0.0476532567,"1.005":0.0464559387} | INCONCLUSIVE |
 
 ## 流动性摘要
 
 | regime | count | corr_abs_premium_log1p_volume | high_premium_lowest_volume_decile_ratio | p95_abs_premium_low_volume_bps | p95_abs_premium_normal_volume_bps | p95_abs_premium_unchanged_bps | p95_abs_premium_updated_bps | median_volume | median_range_bps | corr_abs_premium_range_bps |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| PRE_20260716 | 3398 | 0.5326 | 0.0118 | 54.1531 | 205.1109 | 208.5634 | 204.1964 | 33289.5000 | 61.3758 | 0.0926 |
-| GATE_REGIME_20260716_20260720 | 380 | 0.5143 | 0.0000 | 33.4513 | 176.6772 | 66.6842 | 176.5543 | 200895.5000 | 55.9418 | 0.4959 |
-| POST_20260720 | 393 | -0.1574 | 0.0500 | 15.3682 | 16.6887 | 12.8393 | 16.1653 | 550803.0000 | 76.9112 | 0.0074 |
+| PRE_20260716 | 3398 | 0.5326 | 0.0118 | 54.1531 | 205.1109 | 206.5107 | 204.3119 | 33197.0000 | 61.3108 | 0.0924 |
+| GATE_REGIME_20260716_20260720 | 380 | 0.5109 | 0.0000 | 33.4513 | 176.6772 | 69.4873 | 176.5510 | 205548.0000 | 56.0855 | 0.4988 |
+| POST_20260720 | 398 | -0.1316 | 0.0000 | 15.3682 | 17.4010 | 12.8393 | 16.8981 | 559458.5000 | 76.7450 | 0.0042 |
 
 ## 资金与非Gate基准
 
 | pair | regime | count | median_signed_bps | median_abs_bps | p95_abs_bps |
 | --- | --- | --- | --- | --- | --- |
-| binance/bitget | PRE_20260716 | 3398 | -22.09 | 22.09 | 61.59 |
+| binance/bitget | PRE_20260716 | 3398 | -22.11 | 22.11 | 61.59 |
 | binance/hyperliquid | PRE_20260716 | 3432 | 38.97 | 39.19 | 90.30 |
 | binance/okx | PRE_20260716 | 3432 | 10.51 | 11.53 | 51.96 |
-| bitget/hyperliquid | PRE_20260716 | 3398 | 63.35 | 63.35 | 119.28 |
-| bitget/okx | PRE_20260716 | 3398 | 35.94 | 35.94 | 88.57 |
+| bitget/hyperliquid | PRE_20260716 | 3398 | 63.50 | 63.50 | 119.28 |
+| bitget/okx | PRE_20260716 | 3398 | 35.92 | 35.92 | 88.57 |
 | hyperliquid/okx | PRE_20260716 | 3432 | -27.19 | 27.29 | 61.49 |
-| NON_GATE_CROSS_SECTION_MEDIAN | PRE_20260716 | 3432 | NA | 32.13 | 64.66 |
-| GATE_EXCESS_VS_NON_GATE_MEDIAN | PRE_20260716 | 3398 | NA | 30.12 | 175.04 |
+| NON_GATE_CROSS_SECTION_MEDIAN | PRE_20260716 | 3432 | NA | 32.11 | 64.66 |
+| GATE_EXCESS_VS_NON_GATE_MEDIAN | PRE_20260716 | 3398 | NA | 30.22 | 174.96 |
 | binance/bitget | GATE_REGIME_20260716_20260720 | 380 | -11.93 | 11.93 | 20.74 |
 | binance/hyperliquid | GATE_REGIME_20260716_20260720 | 384 | 31.19 | 31.19 | 66.87 |
 | binance/okx | GATE_REGIME_20260716_20260720 | 384 | 16.09 | 16.09 | 28.41 |
 | bitget/hyperliquid | GATE_REGIME_20260716_20260720 | 380 | 43.63 | 43.63 | 75.95 |
-| bitget/okx | GATE_REGIME_20260716_20260720 | 380 | 27.29 | 27.29 | 43.11 |
+| bitget/okx | GATE_REGIME_20260716_20260720 | 380 | 27.30 | 27.30 | 41.03 |
 | hyperliquid/okx | GATE_REGIME_20260716_20260720 | 384 | -17.31 | 17.31 | 42.91 |
-| NON_GATE_CROSS_SECTION_MEDIAN | GATE_REGIME_20260716_20260720 | 384 | NA | 23.10 | 39.19 |
-| GATE_EXCESS_VS_NON_GATE_MEDIAN | GATE_REGIME_20260716_20260720 | 380 | NA | 17.01 | 151.17 |
-| binance/bitget | POST_20260720 | 393 | -13.03 | 13.03 | 23.57 |
-| binance/hyperliquid | POST_20260720 | 397 | 22.18 | 22.18 | 36.93 |
-| binance/okx | POST_20260720 | 397 | 11.27 | 11.45 | 19.73 |
-| bitget/hyperliquid | POST_20260720 | 393 | 34.64 | 34.64 | 51.61 |
-| bitget/okx | POST_20260720 | 393 | 22.82 | 22.82 | 37.26 |
-| hyperliquid/okx | POST_20260720 | 397 | -11.33 | 11.33 | 28.35 |
-| NON_GATE_CROSS_SECTION_MEDIAN | POST_20260720 | 397 | NA | 18.47 | 26.30 |
-| GATE_EXCESS_VS_NON_GATE_MEDIAN | POST_20260720 | 393 | NA | -11.44 | 1.65 |
+| NON_GATE_CROSS_SECTION_MEDIAN | GATE_REGIME_20260716_20260720 | 384 | NA | 23.10 | 38.83 |
+| GATE_EXCESS_VS_NON_GATE_MEDIAN | GATE_REGIME_20260716_20260720 | 380 | NA | 16.88 | 151.17 |
+| binance/bitget | POST_20260720 | 398 | -12.99 | 12.99 | 23.56 |
+| binance/hyperliquid | POST_20260720 | 402 | 22.07 | 22.07 | 36.83 |
+| binance/okx | POST_20260720 | 402 | 11.19 | 11.30 | 19.72 |
+| bitget/hyperliquid | POST_20260720 | 398 | 34.36 | 34.36 | 51.60 |
+| bitget/okx | POST_20260720 | 398 | 22.68 | 22.68 | 37.08 |
+| hyperliquid/okx | POST_20260720 | 402 | -11.36 | 11.36 | 28.24 |
+| NON_GATE_CROSS_SECTION_MEDIAN | POST_20260720 | 402 | NA | 18.45 | 26.31 |
+| GATE_EXCESS_VS_NON_GATE_MEDIAN | POST_20260720 | 398 | NA | -11.31 | 2.15 |
 
 ## 假设评分
 
