@@ -1,0 +1,14 @@
+check,evidence,conclusion
+quarter_hour_alignment,aligned=True; rows=12630,DATA_ERROR_NOT_SUPPORTED
+duplicate_timestamps,duplicate rows=0,DATA_ERROR_NOT_SUPPORTED
+missing_buckets,index:0; mark:0; trade:0,DATA_ERROR_NOT_SUPPORTED
+pagination_order,normalized rows are sorted; raw API page ordering is not preserved as a column (observed backward count after normalization=0),INCONCLUSIVE
+seconds_milliseconds,implausible years=0,DATA_ERROR_NOT_SUPPORTED
+price_multiplier_1000,"median Gate/external ratios=1.004754,1.003488,1.006200",DATA_ERROR_NOT_SUPPORTED
+trade_mark_index_symbol,"{""index"": ""SKHYNIX_USDT"", ""mark"": ""SKHYNIX_USDT"", ""trade"": ""SKHYNIX_USDT""}",DATA_ERROR_NOT_SUPPORTED
+ohlc_invariants,violations=0,DATA_ERROR_NOT_SUPPORTED
+zero_or_missing_volume,ratio=0.0000%,DATA_ERROR_NOT_SUPPORTED
+trade_count_availability,trade_count column is absent from native 15m schema,INCONCLUSIVE
+extremes_at_low_volume,lowest-volume-decile share among top-5% premium=1.4218%,INCONCLUSIVE
+extremes_after_stale_trade,first-price-change share among top-5% premium=1.8957%,INCONCLUSIVE
+discrete_ratio_steps,"{""1.0"":0.1605700713,""1.001"":0.1522565321,""0.999"":0.0489311164,""1.002"":0.0477434679,""1.005"":0.0467933492}",INCONCLUSIVE

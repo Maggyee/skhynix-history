@@ -1,0 +1,10 @@
+hypothesis,supporting_evidence,contradicting_evidence,missing_evidence,confidence,status
+H1 数据采集或标准化错误,无,时间、OHLC、比例、symbol和重复检查未支持系统性错误,交易所逐笔原始回放,高,NOT_SUPPORTED
+H2 低成交量及陈旧trade close,局部相关性,高溢价并非主要集中于最低成交量十分位,历史逐笔成交与盘口,中等,NOT_SUPPORTED
+H3 Gate内部订单簿或用户多头需求,trade-mark分量和四组同向可与该机制一致,15分钟close不能识别订单流因果,历史BBO、深度、主动买卖流,低,INCONCLUSIVE
+H4 Gate mark机制导致偏离,mark-index分量可定量观测,分量只描述价格层，不证明公式原因,官方逐时公式参数,中等,PARTIALLY_SUPPORTED
+H5 Gate index成分或休市处理不同,index-market分量可定量观测且按交易时段分组,缺少历史指数成分值与权重,Gate历史指数成分/权重,中等,PARTIALLY_SUPPORTED
+H6 产品映射或合约定义不同,metadata中乘数与产品类型存在跨所差异,价格比例不存在1000倍错误,各所正式产品条款的同口径映射,低,INCONCLUSIVE
+H7 资金费率规则改变造成或放大偏离,资金差与溢价存在描述性滞后相关,相关性不能证明因果,规则变更的官方时间戳与库存数据,低,INCONCLUSIVE
+H8 全市场共同price discovery分裂，并非Gate特有,非Gate P95提供同期基准,Gate excess若显著为正则反对完全共同分裂,跨所历史BBO,中等,PARTIALLY_SUPPORTED
+H9 外部事件导致短期价格锚分叉,交易日历/时段效应和外部时间线可比对,时间重合不构成因果,可验证公告及分钟级事件研究,低,INCONCLUSIVE
