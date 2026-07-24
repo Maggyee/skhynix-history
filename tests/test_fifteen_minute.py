@@ -101,6 +101,43 @@ def test_incremental_refresh_preserves_history_and_is_idempotent(monkeypatch, tm
     assert not second.duplicated(["exchange", "symbol", "price_type", "open_time"]).any()
 
 
+def test_incremental_refresh_failure_preserves_exchange_history(monkeypatch, tmp_path):
+    monkeypatch.setattr(fm, "ROOT", tmp_path)
+    normalized = tmp_path / "data" / "normalized"
+    raw = tmp_path / "data" / "raw"
+    normalized.mkdir(parents=True)
+    raw.mkdir(parents=True)
+
+    old = _prices().copy()
+    old.to_parquet(normalized / "prices_15m.parquet", index=False)
+    meta = pd.DataFrame(
+        {"exchange": fm.EXCHANGES, "status": "active", "resolved_symbol": fm.EXCHANGES}
+    )
+    monkeypatch.setattr(fm, "discover_all", lambda: (meta, {}))
+
+    def downloader(exchange):
+        def run(start, end, symbol):
+            if exchange == "okx":
+                raise RuntimeError("transient OKX failure")
+            row = _prices()[lambda frame: frame.exchange == exchange].iloc[0].to_dict()
+            row["open_time"] = pd.Timestamp("2026-07-24T01:00Z")
+            row["close_time"] = row["open_time"] + fm.BAR - pd.Timedelta(milliseconds=1)
+            return [row]
+
+        return run
+
+    monkeypatch.setattr(
+        fm, "NATIVE_DOWNLOADERS", {exchange: downloader(exchange) for exchange in fm.EXCHANGES}
+    )
+    out = fm.download_native_prices_15m(
+        pd.Timestamp("2026-06-10T06:00Z"), pd.Timestamp("2026-07-24T01:30Z")
+    )
+
+    old_okx = old[old.exchange == "okx"].reset_index(drop=True)
+    actual_okx = out[out.exchange == "okx"].reset_index(drop=True)
+    pd.testing.assert_frame_equal(actual_okx[old_okx.columns], old_okx, check_dtype=False)
+
+
 def test_funding_only_loader_does_not_read_price_data(monkeypatch,tmp_path):
     funding_path=tmp_path/"funding.parquet";_funding().to_parquet(funding_path,index=False)
     monkeypatch.setattr(fm,"ROOT",tmp_path)
