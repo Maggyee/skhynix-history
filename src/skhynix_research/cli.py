@@ -38,6 +38,11 @@ def main(argv=None):
     wf.add_argument("--train-bars",type=int,default=7*24*4);wf.add_argument("--test-bars",type=int,default=2*24*4)
     wf.add_argument("--step-bars",type=int);wf.add_argument("--bootstrap-samples",type=int,default=2000)
     wf.add_argument("--future-oos-start",help="参数锁定UTC边界；省略则全部标记为历史伪样本外")
+    higher=sub.add_parser("higher-bps-study")
+    higher.add_argument("--prices",type=Path,default=ROOT/"data/normalized/prices_15m.parquet")
+    higher.add_argument("--funding",type=Path,default=ROOT/"data/normalized/funding_events.parquet")
+    higher.add_argument("--output-dir",type=Path,default=ROOT/"reports_higher_bps_study")
+    higher.add_argument("--bootstrap-samples",type=int,default=1000)
     live=sub.add_parser("collect-1m");live.add_argument("--forever",action="store_true");live.add_argument("--lookback-minutes",type=int,default=5);live.add_argument("--funding-lookback-hours",type=int,default=24);live.add_argument("--poll-seconds",type=int,default=60);live.add_argument("--grace-seconds",type=int,default=8)
     sub.add_parser("monitor-1m")
     sub.add_parser("report-live-1m")
@@ -69,6 +74,12 @@ def main(argv=None):
             bootstrap_samples=args.bootstrap_samples,future_oos_start=args.future_oos_start)
         result=run_walk_forward(pd.read_parquet(args.prices),pd.read_parquet(args.funding) if args.funding.exists() else None,cfg,args.output_dir)
         print(f"folds={len(result['folds'])}; events={len(result['events'])}; output={result['output_dir']}");return 0
+    if args.cmd=="higher-bps-study":
+        from .higher_bps_study import StudyConfig, run_study
+        result=run_study(pd.read_parquet(args.prices),
+            pd.read_parquet(args.funding) if args.funding.exists() else None,
+            args.output_dir,StudyConfig(bootstrap_samples=args.bootstrap_samples))
+        print(f"events={len(result['events']):,}; output={result['output_dir']}");return 0
     start=parse_utc(args.start); end=end_value(args.end)
     if args.cmd=="audit-history":
         print(audit_history_coverage(start,end));return 0

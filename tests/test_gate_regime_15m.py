@@ -101,14 +101,46 @@ def test_retrospective_change_points_cannot_enter_strategy_provider():
 
 
 def test_data_gap_and_following_warmup_are_stale_or_invalid():
-    prices=_prices(periods=140)
+    prices=_prices(periods=220)
     gap=pd.Timestamp("2026-07-17T00:00Z")
     prices=prices[~((prices.exchange=="okx")&(prices.price_type=="trade")&(prices.open_time==gap))]
     labels=gr.build_causal_regime_labels(prices).set_index("open_time")
     assert labels.loc[gap,"causal_regime"]=="STALE_OR_INVALID"
     assert labels.loc[gap,"regime_reason"]=="STRICT_EXTERNAL_3_OF_3_MISSING"
     assert labels.loc[gap+gr.BAR,"causal_regime"]=="STALE_OR_INVALID"
-    assert labels.loc[gap+2*gr.BAR,"causal_regime"]=="NORMAL"
+    assert labels.loc[gap+95*gr.BAR,"causal_regime"]=="STALE_OR_INVALID"
+    assert labels.loc[gap+96*gr.BAR,"causal_regime"]!="STALE_OR_INVALID"
+
+
+def test_causal_regime_synthetic_structural_spike_gap_and_normal():
+    idx=pd.date_range("2026-01-01",periods=220,freq="15min",tz="UTC")
+
+    def labels(values, valid=None):
+        series=pd.Series(values,index=idx,dtype=float)
+        ok=pd.Series(True,index=idx) if valid is None else pd.Series(valid,index=idx)
+        features=gr._causal_rolling_features(series,ok)
+        median=features.rolling_median_24h_bps
+        mad=features.rolling_mad_24h_bps.clip(lower=gr.CAUSAL_RESEARCH_PARAMS["mad_floor_bps"])
+        structural=(features.history_ready & median.abs().ge(50) &
+                    features.same_sign_ratio_24h.ge(.80))
+        transient=(features.history_ready & series.abs().ge(100) & median.abs().lt(50) &
+                   (series-median).abs().ge(6*mad))
+        return features,structural,transient
+
+    _,structural,transient=labels(np.full(len(idx),80.0))
+    assert structural.iloc[95:].all() and not transient.any()
+
+    spike=np.zeros(len(idx));spike[120]=180
+    _,structural,transient=labels(spike)
+    assert transient.iloc[120] and not structural.iloc[120]
+
+    _,structural,transient=labels(np.zeros(len(idx)))
+    assert not structural.any() and not transient.any()
+
+    valid=np.ones(len(idx),dtype=bool);valid[120]=False
+    features,_,_=labels(np.full(len(idx),80.0),valid)
+    assert not features.history_ready.iloc[120:216].any()
+    assert features.history_ready.iloc[216]
 
 
 def test_causal_labels_only_use_current_and_past_rolling_windows():

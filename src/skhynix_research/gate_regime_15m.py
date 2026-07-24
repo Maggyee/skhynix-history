@@ -172,6 +172,39 @@ def _valid_trade_ohlc(prices: pd.DataFrame, index: pd.DatetimeIndex) -> pd.DataF
     return p.pivot(index="open_time", columns="exchange", values="valid_ohlc").reindex(index)
 
 
+def _causal_rolling_features(premium: pd.Series, current_valid: pd.Series) -> pd.DataFrame:
+    """Return same-window causal features and require 24h after every gap.
+
+    Each statistic is computed directly from the observations in its declared
+    window.  In particular, MAD and sign persistence are not rolling windows
+    over an already rolling median.  Invalid observations remain NaN, so a
+    complete window must accumulate again after a gap.
+    """
+    x = pd.to_numeric(premium, errors="coerce").where(current_valid)
+    out = pd.DataFrame(index=x.index)
+    for hours in (4, 12, 24):
+        bars = hours * 4
+        out[f"rolling_median_{hours}h_bps"] = x.rolling(
+            bars, min_periods=bars
+        ).median()
+
+    def mad(values: np.ndarray) -> float:
+        center = np.median(values)
+        return float(np.median(np.abs(values - center)))
+
+    def same_sign_ratio(values: np.ndarray) -> float:
+        center_sign = np.sign(np.median(values))
+        if center_sign == 0:
+            return float(np.mean(np.sign(values) == 0))
+        return float(np.mean(np.sign(values) == center_sign))
+
+    window = x.rolling(96, min_periods=96)
+    out["rolling_mad_24h_bps"] = window.apply(mad, raw=True)
+    out["same_sign_ratio_24h"] = window.apply(same_sign_ratio, raw=True)
+    out["history_ready"] = out["rolling_median_24h_bps"].notna()
+    return out
+
+
 def build_causal_regime_labels(
     prices: pd.DataFrame, params: dict | None = None
 ) -> pd.DataFrame:
@@ -195,8 +228,10 @@ def build_causal_regime_labels(
     ohlc_valid = ohlc.notna().all(axis=1) & ohlc.fillna(False).all(axis=1)
     current_valid = count.eq(3) & price_valid & ohlc_valid & premium.notna()
     lookback = int(cfg["lookback_bars"])
-    continuity_valid = current_valid & current_valid.shift(1, fill_value=False)
-    history_ready = current_valid.rolling(lookback, min_periods=lookback).sum().eq(lookback)
+    if lookback != 96:
+        raise ValueError("Gate causal regime lookback_bars must remain the declared 24h/96-bar window")
+    rolling = _causal_rolling_features(premium, current_valid)
+    history_ready = rolling.history_ready
 
     out = pd.DataFrame(index=grid)
     out.index.name = "open_time"
@@ -204,18 +239,10 @@ def build_causal_regime_labels(
     out["external_venue_count"] = count.astype("Int64")
     out["external_scope"] = STRICT_EXTERNAL_SCOPE
     for hours in (4, 12, 24):
-        bars = hours * 4
-        out[f"rolling_median_{hours}h_bps"] = premium.rolling(bars, min_periods=bars).median()
+        out[f"rolling_median_{hours}h_bps"] = rolling[f"rolling_median_{hours}h_bps"]
     median24 = out["rolling_median_24h_bps"]
-    out["rolling_mad_24h_bps"] = (
-        premium - median24
-    ).abs().rolling(96, min_periods=96).median()
-    direction = np.sign(median24)
-    same_sign = pd.Series(
-        np.where(direction >= 0, premium > 0, premium < 0), index=grid, dtype=float
-    )
-    same_sign[premium.isna() | median24.isna()] = np.nan
-    out["same_sign_ratio_24h"] = same_sign.rolling(96, min_periods=96).mean()
+    out["rolling_mad_24h_bps"] = rolling.rolling_mad_24h_bps
+    out["same_sign_ratio_24h"] = rolling.same_sign_ratio_24h
 
     structural = (
         history_ready
@@ -232,12 +259,12 @@ def build_causal_regime_labels(
     out["causal_regime"] = "NORMAL"
     out.loc[transient, "causal_regime"] = "TRANSIENT_DISLOCATION"
     out.loc[structural, "causal_regime"] = "STRUCTURAL_PREMIUM"
-    out.loc[~continuity_valid, "causal_regime"] = "STALE_OR_INVALID"
+    out.loc[~history_ready, "causal_regime"] = "STALE_OR_INVALID"
 
     reason = pd.Series("VALID_OTHERWISE_NORMAL", index=grid, dtype=object)
     reason.loc[transient] = "CURRENT_EDGE_ABNORMAL_VS_PAST_24H_MAD"
     reason.loc[structural] = "PAST_24H_DIRECTED_MEDIAN_AND_SIGN_PERSISTENCE"
-    reason.loc[~continuity_valid] = "CURRENT_OR_PREVIOUS_BAR_NOT_CONTIGUOUS_VALID"
+    reason.loc[~history_ready] = "INSUFFICIENT_CONTIGUOUS_24H_HISTORY"
     reason.loc[~ohlc_valid] = "INVALID_OR_MISSING_OHLC"
     reason.loc[~price_valid] = "GATE_OR_EXTERNAL_PRICE_INVALID"
     reason.loc[count.lt(3)] = "STRICT_EXTERNAL_3_OF_3_MISSING"

@@ -142,6 +142,23 @@ class Confirmation:
         return self.long_exchange, self.short_exchange, self.threshold_bps, self.regime
 
 
+@dataclass(frozen=True)
+class SignalObservation:
+    observed_at: str
+    long_exchange: str
+    short_exchange: str
+    raw_executable_edge_bps: float
+    estimated_fees_bps: float
+    estimated_slippage_bps: float
+    safety_buffer_bps: float
+    net_executable_edge_bps: float
+    signal_duration_seconds: float
+    cross_exchange_timestamp_skew_ms: float
+    max_quote_age_ms: float
+    first_level_capacity_usd: float
+    rejection_reason: str
+
+
 class PaperEngine:
     def __init__(self, paper: dict, live: dict, root: Path,
                  regime_provider: Callable[[datetime], str]):
@@ -155,6 +172,7 @@ class PaperEngine:
         self.connection_ids: dict[str, str] = {}
         self.positions: list[Position] = []
         self.trades: list[Trade] = []
+        self.signal_observations: list[SignalObservation] = []
         self.blocked_counts: dict[str, int] = {}
         self.processed_funding_event_ids: set[str] = set()
         self.confirmation: Confirmation | None = None
@@ -167,6 +185,7 @@ class PaperEngine:
         data = json.loads(self.ledger_path.read_text())
         self.positions = [Position(**x) for x in data.get("positions", [])]
         self.trades = [Trade(**x) for x in data.get("trades", [])]
+        self.signal_observations = [SignalObservation(**x) for x in data.get("signal_observations", [])]
         self.blocked_counts = data.get("blocked_counts", {})
         self.processed_funding_event_ids = set(data.get("processed_funding_event_ids", []))
 
@@ -175,6 +194,7 @@ class PaperEngine:
         payload = {"paper_only": True, "updated_at": _utc().isoformat(),
             "positions": [asdict(x) for x in self.positions],
             "trades": [asdict(x) for x in self.trades],
+            "signal_observations": [asdict(x) for x in self.signal_observations[-100000:]],
             "blocked_counts": self.blocked_counts,
             "processed_funding_event_ids": sorted(self.processed_funding_event_ids)}
         tmp = self.ledger_path.with_suffix(".json.tmp")
@@ -292,6 +312,25 @@ class PaperEngine:
             pairs.extend(((left, right), (right, left)))
         return pairs
 
+    def _record_signal(self, now, long, short, raw, net, rejection_reason):
+        confirmation_duration = 0.0
+        if self.confirmation and self.confirmation.key[:2] == (long.exchange, short.exchange):
+            confirmation_duration = max(0.0, (now-self.confirmation.started_at).total_seconds())
+        fees = 2*self._fee_bps(long.exchange)+2*self._fee_bps(short.exchange)
+        slippage = 4*float(self.paper.get("slippage_bps_per_fill",0))
+        safety = float(self.paper.get("safety_buffer_bps",0))
+        skew = abs((long.exchange_ts-short.exchange_ts).total_seconds()*1000)
+        age = max((now-long.exchange_ts).total_seconds()*1000,
+                  (now-short.exchange_ts).total_seconds()*1000)
+        capacity = min(long.ask_notional_usd,short.bid_notional_usd)
+        observation = SignalObservation(now.isoformat(),long.exchange,
+            short.exchange,float(raw),float(fees),float(slippage),float(safety),float(net),
+            float(confirmation_duration),float(skew),float(age),float(capacity),rejection_reason)
+        self.signal_observations.append(observation)
+        path=self.root/"paper_bbo"/"signal_observations.ndjson";path.parent.mkdir(parents=True,exist_ok=True)
+        with path.open("a",encoding="utf-8") as handle:
+            handle.write(json.dumps(asdict(observation),ensure_ascii=False)+"\n")
+
     def evaluate(self, now=None):
         now = _utc(now)
         if self.positions:
@@ -306,7 +345,7 @@ class PaperEngine:
             self._reset_confirmation("confirmation_regime_changed")
             return
         thresholds = sorted(float(x) for x in self.paper.get("entry_thresholds_bps", ()))
-        if thresholds != [100.0, 150.0, 200.0]:
+        if thresholds != [100.0, 150.0, 200.0, 250.0, 300.0]:
             self._block("unfrozen_threshold_config")
             self._reset_confirmation()
             return
@@ -325,6 +364,9 @@ class PaperEngine:
             reasons = self._capacity(long, short, quantity, entering=True)
             if reasons:
                 for reason in set(reasons): self._block(reason)
+                raw = (short.bid-long.ask)/long.ask*10_000
+                cost = self._estimated_total_cost_bps(long.exchange,short.exchange)
+                self._record_signal(now,long,short,raw,raw-cost,"|".join(sorted(set(reasons))))
                 continue
             raw = (short.bid - long.ask) / long.ask * 10_000
             cost = self._estimated_total_cost_bps(long.exchange, short.exchange)
@@ -332,10 +374,13 @@ class PaperEngine:
             crossed = [x for x in thresholds if net >= x]
             if crossed:
                 candidates.append((net, max(crossed), raw, cost, quantity, long, short))
+            else:
+                self._record_signal(now,long,short,raw,net,"BELOW_CONFIGURED_NET_THRESHOLD")
         if not candidates:
             self._reset_confirmation("confirmation_condition_failed")
             return
         net, threshold, raw, cost, quantity, long, short = max(candidates, key=lambda x: x[0])
+        self._record_signal(now,long,short,raw,net,"")
         key = (long.exchange, short.exchange, threshold, regime)
         if self.confirmation is None or self.confirmation.key != key:
             self.confirmation = Confirmation(*key, started_at=now)
