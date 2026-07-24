@@ -31,17 +31,18 @@ def main(argv=None):
     q=sub.add_parser("quick");q.add_argument("--start",default=load_config()["start"]);q.add_argument("--end",default="now")
     ah=sub.add_parser("audit-history");ah.add_argument("--start",default=load_config()["start"]);ah.add_argument("--end",default="now")
     m15=sub.add_parser("analysis-15m");m15.add_argument("--start",default="2026-06-10T06:00:00Z");m15.add_argument("--end",default="now")
-    live=sub.add_parser("collect-1m");live.add_argument("--forever",action="store_true");live.add_argument("--lookback-minutes",type=int,default=5);live.add_argument("--poll-seconds",type=int,default=60);live.add_argument("--grace-seconds",type=int,default=8)
+    live=sub.add_parser("collect-1m");live.add_argument("--forever",action="store_true");live.add_argument("--lookback-minutes",type=int,default=5);live.add_argument("--funding-lookback-hours",type=int,default=24);live.add_argument("--poll-seconds",type=int,default=60);live.add_argument("--grace-seconds",type=int,default=8)
     sub.add_parser("monitor-1m")
     sub.add_parser("report-live-1m")
     args=ap.parse_args(argv)
     if args.cmd=="collect-1m":
         if args.forever:
-            run_forever(args.lookback_minutes,args.poll_seconds,args.grace_seconds);return 0
-        runs,monitor,status=collect_once(args.lookback_minutes)
-        print(runs[["exchange","price_type","rows_received","success","error"]].to_string(index=False));print(json.dumps(status,ensure_ascii=False));return 0 if status["healthy_trade_exchanges"] else 1
+            run_forever(args.lookback_minutes,args.poll_seconds,args.grace_seconds,args.funding_lookback_hours);return 0
+        runs,monitor,status=collect_once(args.lookback_minutes,funding_lookback_hours=args.funding_lookback_hours)
+        print(runs[["exchange","price_type","rows_received","success","error"]].to_string(index=False));print(json.dumps(status,ensure_ascii=False));return 0 if status["healthy"] else 1
     if args.cmd=="monitor-1m":
-        monitor,status=build_monitor();print(monitor.to_string(index=False));print(json.dumps(status,ensure_ascii=False));return 0 if status["healthy"] else 1
+        monitor,status=build_monitor();print(monitor.to_string(index=False));
+        funding_monitor=pd.read_csv(ROOT/"data/live_1m/funding_monitor.csv");print("\nFUNDING\n"+funding_monitor.to_string(index=False));print(json.dumps(status,ensure_ascii=False));return 0 if status["healthy"] else 1
     if args.cmd=="report-live-1m":
         result,summary,html=generate_live_1m_report();window=result["window"].iloc[0]
         print(f"1m common={window.global_start} to {window.global_end_exclusive}; coverage={window.all_five_coverage_pct:.1f}%; reports={summary}, {html}");return 0

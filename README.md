@@ -18,6 +18,8 @@ make quick
 `data/live_1m/prices/` 分区 Parquet 数据集。`trade` 是五家统一的主价格；
 Binance、Bitget、Gate 和 OKX 同时尽量记录官方 `mark`、`index`，Hyperliquid
 仅记录其可用的 `trade` K 线。原始 API 响应保存在 `data/raw/live_1m/`。
+同一常驻服务还会轮询五家真实已结算资金费率，回看最近 24 小时以处理延迟发布，
+并幂等写入 `data/live_1m/funding/` 分区 Parquet 数据集。
 
 ```bash
 # 单轮采集与回补最近 5 分钟
@@ -34,7 +36,8 @@ uv run skhynix-research report-live-1m
 ```
 
 `data/live_1m/collection_runs.csv` 是逐轮采集账本，`monitor.csv` 是各平台/价格
-类型的滚动 24 小时覆盖快照，`status.json` 汇总五家 `trade` 数据是否按规律运行。
+类型的滚动 24 小时覆盖快照，`funding_monitor.csv` 记录五家资金费率轮询健康度，
+`status.json` 汇总五家 `trade` 与资金费率数据是否按规律运行。
 原始响应按“平台/UTC 日期”归档为 NDJSON，避免长期运行产生海量小文件。
 
 实时统计报告输出到 `reports_live_1m/`。它只分析五家原生 `trade close 1m`

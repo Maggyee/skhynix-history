@@ -1,12 +1,12 @@
 [Unit]
-Description=SKHYNIX five-exchange native 1m collector
+Description=SKHYNIX five-exchange native 1m and realized funding collector
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 WorkingDirectory=/home/nishiki/skhynix-history
-ExecStart=/home/nishiki/.local/bin/uv run skhynix-research collect-1m --forever --lookback-minutes 5 --poll-seconds 60 --grace-seconds 8
+ExecStart=/home/nishiki/.local/bin/uv run skhynix-research collect-1m --forever --lookback-minutes 5 --funding-lookback-hours 24 --poll-seconds 60 --grace-seconds 8
 Restart=always
 RestartSec=10
 Environment=PYTHONUNBUFFERED=1

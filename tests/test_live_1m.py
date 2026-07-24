@@ -26,11 +26,24 @@ def test_partition_upsert_is_idempotent(tmp_path, monkeypatch):
     assert out.iloc[0].close == 101
 
 
+def test_funding_partition_upsert_is_idempotent(tmp_path, monkeypatch):
+    monkeypatch.setattr(live_1m,"FUNDING_ROOT",tmp_path/"funding")
+    row={"exchange":"okx","symbol":"x","funding_time":pd.Timestamp("2026-07-23T16:00Z"),
+        "funding_rate":-0.001,"settlement_status":"realized","source_endpoint":"official",
+        "retrieved_at":"2026-07-23T16:01:00Z","raw_file":"raw.ndjson"}
+    live_1m.upsert_funding([row]);row["funding_rate"]=-0.002;row["retrieved_at"]="2026-07-23T16:02:00Z"
+    live_1m.upsert_funding([row]);out=live_1m.read_funding()
+    assert len(out)==1
+    assert out.iloc[0].funding_rate==-0.002
+
+
 def test_monitor_detects_missing_minute(tmp_path, monkeypatch):
     monkeypatch.setattr(live_1m, "DATA_ROOT", tmp_path)
     monkeypatch.setattr(live_1m, "PRICES_ROOT", tmp_path/"prices")
+    monkeypatch.setattr(live_1m, "FUNDING_ROOT", tmp_path/"funding")
     monkeypatch.setattr(live_1m, "RUNS_PATH", tmp_path/"runs.csv")
     monkeypatch.setattr(live_1m, "MONITOR_PATH", tmp_path/"monitor.csv")
+    monkeypatch.setattr(live_1m, "FUNDING_MONITOR_PATH", tmp_path/"funding_monitor.csv")
     monkeypatch.setattr(live_1m, "STATUS_PATH", tmp_path/"status.json")
     live_1m.upsert_prices([_row(minute="2026-07-23T10:00Z"), _row(minute="2026-07-23T10:02Z")])
     live_1m._append_runs([{"cycle_id":"x", "exchange":"binance", "price_type":"trade", "success":True}])
