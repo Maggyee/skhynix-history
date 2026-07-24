@@ -27,6 +27,11 @@ from .config import ROOT, load_config
 from .download import ENDPOINTS, candle, discover_all, ms
 from .history_quality import detailed_session
 from .http import CachedHTTP
+from .relative_spread_diagnostics import (
+    ASSUMED_TOTAL_COST_BPS,
+    EXIT_BUFFER_BPS,
+    build_relative_spread_diagnostics,
+)
 
 EXCHANGES = ("binance", "bitget", "gate", "hyperliquid", "okx")
 BAR = pd.Timedelta(minutes=15)
@@ -411,16 +416,17 @@ def analyze_native_15m(prices, funding):
     else: joint_summary=pd.DataFrame(columns=["analysis_scope","pair","cost_bps","event_count","positive_event_count","win_rate","total_net_bps","median_net_bps","joint_start","joint_end"])
     joint_summary.to_csv(R15/"joint_strategy_summary_15m.csv",index=False)
     _charts(aligned,summary,events,start,end)
-    text=_write_15m_report(start,end,funding_start,funding_end,summary,joint_summary,events,aligned)
-    _write_15m_html(text,summary,joint_summary)
-    return {"price_start":start,"price_end":end,"joint_start":joint_start,"joint_end":joint_end,"summary":summary,"joint_summary":joint_summary}
+    relative_summary,relative_pairs=build_relative_spread_diagnostics(aligned,R15/"relative_spread")
+    text=_write_15m_report(start,end,funding_start,funding_end,summary,joint_summary,events,aligned,relative_summary,relative_pairs)
+    _write_15m_html(text,summary,joint_summary,relative_summary,relative_pairs)
+    return {"price_start":start,"price_end":end,"joint_start":joint_start,"joint_end":joint_end,"summary":summary,"joint_summary":joint_summary,"relative_summary":relative_summary,"relative_pairs":relative_pairs}
 
 
 def _fmt_top(df,col,n=3):
     return "; ".join(f"{r.pair} {getattr(r,col):.2f} bps" for r in df.sort_values(col,ascending=False).head(n).itertuples())
 
 
-def _write_15m_report(start,end,funding_start,funding_end,summary,joint_summary,events,aligned):
+def _write_15m_report(start,end,funding_start,funding_end,summary,joint_summary,events,aligned,relative_summary,relative_pairs):
     fm=pd.read_csv(ROOT/"reports/funding_global_matrix.csv");fc=pd.read_csv(ROOT/"reports/funding_global_common_window.csv")
     topf=fm.sort_values("cashflow_10000usd",ascending=False).head(3)
     bo=fm[(fm.long_exchange=="bitget")&(fm.short_exchange=="okx")].iloc[0];bg=fm[(fm.long_exchange=="bitget")&(fm.short_exchange=="gate")].iloc[0]
@@ -454,6 +460,14 @@ def _write_15m_report(start,end,funding_start,funding_end,summary,joint_summary,
 13. 仅1m近期窗口成立的结论：秒近似尖峰形态、1–14分钟持续时间和局部微观 regime。Gate 1m 从 2026-07-16 18:34 开始，Hyperliquid 1m 从 2026-07-19 16:05 开始，不能用于6月10日起的五家排名。
 14. 15m完整历史仍成立的结论：上述 P95/P99 排名、Gate/Hyperliquid 在各自1m起点之前的价格层级，以及统一15m联合策略成本敏感性。15m事件持续时间只能按15分钟桶解释。
 
+## Relative Spread Diagnostics
+
+- 原始价差是观察到的总有向价差；结构基线是严格只使用当前时点之前连续原生15m桶的24h/72h滚动中位数。
+- 残差价差是原始价差减去结构基线，用于刻画相对正常状态的短期异常偏离；缺口后基线重置，历史不足保持 NaN 并标为 `insufficient_history`。
+- 净残差边际是残差绝对值扣除研究假设成本 {ASSUMED_TOTAL_COST_BPS:g} bps 和退出残余 {EXIT_BUFFER_BPS:g} bps 后的诊断指标，不是真实可执行净收益。
+- 展示组合：{', '.join(relative_pairs)}。按72h口径，P95诊断性净残差边际前三：{_fmt_top(relative_summary[relative_summary.baseline_window=='72h'],'p95_net_residual_edge_bps')}。
+- 这些图帮助判断高阈值触发是在交易相对结构基差的异常偏离，还是仅仅暴露于长期结构性基差。
+
 ## 方法与限制
 
 - 原生15m接口响应按请求哈希缓存；没有从1m拼接、没有上采样为1m、没有未来填充；末根未闭合K线被排除。
@@ -465,11 +479,31 @@ def _write_15m_report(start,end,funding_start,funding_end,summary,joint_summary,
     return text
 
 
-def _write_15m_html(text,summary,joint):
-    imgs=[]
-    for p in sorted((R15/"charts").glob("*.png")):
-        imgs.append(f"<h2>{p.stem}</h2><img src='data:image/png;base64,{base64.b64encode(p.read_bytes()).decode()}'>")
-    doc=f"<!doctype html><html lang='zh-CN'><meta charset='utf-8'><title>SKHYNIX 15m unified analysis</title><style>body{{max-width:1250px;margin:30px auto;font:15px system-ui;line-height:1.55}}img{{max-width:100%}}table{{border-collapse:collapse;display:block;overflow:auto;font-size:12px}}td,th{{border:1px solid #ddd;padding:4px}}pre{{white-space:pre-wrap}}.warn{{background:#fff3cd;padding:12px}}</style><h1>PRICE_FUNDING_15M_GLOBAL_WINDOW</h1><div class='warn'>ALL_FIVE_TRADE_CLOSE_15M；原生闭合15m桶；历史K线不是BBO。</div><pre>{html.escape(text)}</pre><h2>Pair summary</h2>{summary.to_html(index=False)}<h2>Joint strategy</h2>{joint.to_html(index=False)}{''.join(imgs)}</html>"
+def _write_15m_html(text,summary,joint,relative_summary,relative_pairs):
+    def image(path, heading=""):
+        if not path.exists(): return ""
+        encoded=base64.b64encode(path.read_bytes()).decode()
+        return f"<h3>{html.escape(heading or path.stem)}</h3><img src='data:image/png;base64,{encoded}' alt='{html.escape(path.stem)}'>"
+    price_charts=[]
+    for name in ["pairwise_p95_heatmap_15m.png","spread_timeseries_all_five_15m.png"]:
+        price_charts.append(image(R15/"charts"/name))
+    gate_panels=[];nongate_panels=[]
+    for pair in relative_pairs:
+        stem=pair.replace("/","_")
+        panel="".join(image(R15/"relative_spread"/f"{stem}_{suffix}.png") for suffix in ["raw_vs_baseline","residual","residual_edge"])
+        (gate_panels if pair.startswith("gate/") else nongate_panels).append(f"<h2>{html.escape(pair)}</h2>{panel}")
+    used={"pairwise_p95_heatmap_15m.png","spread_timeseries_all_five_15m.png"}
+    remaining=[image(p) for p in sorted((R15/"charts").glob("*.png")) if p.name not in used]
+    relative_table=relative_summary.to_html(index=False,float_format=lambda value:f"{value:.4f}")
+    relative_section=f"""<section id='relative-spread'><h1>Relative Spread Diagnostics</h1>
+<p class='subtitle'>Raw spread, structural baseline, residual spread, and residual edge</p>
+<div class='method'><p><strong>原始价差</strong>是观察到的总有向价差；<strong>结构基线</strong>是严格因果的24h/72h历史正常价差中心；<strong>残差价差</strong>是相对正常状态的异常偏离；<strong>净残差边际</strong>是残差扣除研究假设成本和退出残余后的诊断指标。</p>
+<p>基线只使用当前时点之前的连续原生15m成交收盘价，共同时戳严格相交且不前向填充；缺口后重置，历史不足为 NaN / <code>insufficient_history</code>。</p>
+<p><strong>研究假设：Assumed cost = {ASSUMED_TOTAL_COST_BPS:g} bps, exit buffer = {EXIT_BUFFER_BPS:g} bps。</strong>这不是实时BBO成本，也不是真实可执行净收益。</p>
+<p>本节用于判断高阈值触发交易的是短期异常偏离，还是长期结构性基差。</p></div>
+<h2>Relative spread summary</h2>{relative_table}{''.join(gate_panels)}
+<details><summary>Top 3 non-Gate pairs by P95 absolute raw spread</summary>{''.join(nongate_panels)}</details></section>"""
+    doc=f"<!doctype html><html lang='zh-CN'><meta charset='utf-8'><title>SKHYNIX 15m unified analysis</title><style>body{{max-width:1250px;margin:30px auto;font:15px system-ui;line-height:1.55;color:#172033}}img{{max-width:100%}}table{{border-collapse:collapse;display:block;overflow:auto;font-size:12px}}td,th{{border:1px solid #ddd;padding:4px}}pre{{white-space:pre-wrap}}.warn{{background:#fff3cd;padding:12px}}.method{{background:#eff6ff;border-left:4px solid #2563eb;padding:10px 16px}}.subtitle{{color:#475569;font-size:18px}}details{{margin:24px 0}}summary{{cursor:pointer;font-weight:700;font-size:18px}}</style><h1>PRICE_FUNDING_15M_GLOBAL_WINDOW</h1><div class='warn'>ALL_FIVE_TRADE_CLOSE_15M；原生闭合15m桶；历史K线不是BBO。</div><pre>{html.escape(text)}</pre><h2>Pair summary</h2>{summary.to_html(index=False)}<section id='raw-spread-overview'><h1>Raw spread overview</h1>{''.join(price_charts)}</section>{relative_section}<section id='strategy-backtest'><h1>Strategy backtest results</h1><h2>Joint strategy</h2>{joint.to_html(index=False)}{''.join(remaining)}</section></html>"
     (R15/"quick_report_15m.html").write_text(doc)
 
 

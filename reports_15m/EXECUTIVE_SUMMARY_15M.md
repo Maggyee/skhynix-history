@@ -22,6 +22,14 @@
 13. 仅1m近期窗口成立的结论：秒近似尖峰形态、1–14分钟持续时间和局部微观 regime。Gate 1m 从 2026-07-16 18:34 开始，Hyperliquid 1m 从 2026-07-19 16:05 开始，不能用于6月10日起的五家排名。
 14. 15m完整历史仍成立的结论：上述 P95/P99 排名、Gate/Hyperliquid 在各自1m起点之前的价格层级，以及统一15m联合策略成本敏感性。15m事件持续时间只能按15分钟桶解释。
 
+## Relative Spread Diagnostics
+
+- 原始价差是观察到的总有向价差；结构基线是严格只使用当前时点之前连续原生15m桶的24h/72h滚动中位数。
+- 残差价差是原始价差减去结构基线，用于刻画相对正常状态的短期异常偏离；缺口后基线重置，历史不足保持 NaN 并标为 `insufficient_history`。
+- 净残差边际是残差绝对值扣除研究假设成本 20 bps 和退出残余 20 bps 后的诊断指标，不是真实可执行净收益。
+- 展示组合：gate/binance, gate/bitget, gate/okx, gate/hyperliquid, bitget/hyperliquid, bitget/okx, binance/hyperliquid。按72h口径，P95诊断性净残差边际前三：gate/hyperliquid 72.99 bps; gate/okx 69.32 bps; gate/bitget 65.69 bps。
+- 这些图帮助判断高阈值触发是在交易相对结构基差的异常偏离，还是仅仅暴露于长期结构性基差。
+
 ## 方法与限制
 
 - 原生15m接口响应按请求哈希缓存；没有从1m拼接、没有上采样为1m、没有未来填充；末根未闭合K线被排除。
