@@ -1,0 +1,8 @@
+threshold_bps,total_signal_count,realized_event_count,right_censored_count,censor_rate,positive_event_count,win_rate,mean_net_price_pnl_bps,median_net_price_pnl_bps,mean_gross_price_pnl_bps,mean_funding_pnl_bps,mean_net_combined_pnl_bps,median_holding_minutes
+20,216,22,3,0.013888888888888888,6,0.2727272727272727,-6.372097755438418,-5.894543409483681,13.62790224456158,-0.29495909090909095,-6.667056846347509,35.0
+50,19,0,0,0.0,0,,,,,,,
+100,23,0,0,0.0,0,,,,,,,
+150,8,0,0,0.0,0,,,,,,,
+200,3,0,0,0.0,0,,,,,,,
+250,0,0,0,,0,,,,,,,
+300,0,0,0,,0,,,,,,,
