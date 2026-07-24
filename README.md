@@ -60,3 +60,21 @@ uv run skhynix-research collect-bbo --duration-seconds 600
 
 本模块只包含公共市场数据。它不读取 API key、不连接账户或私有频道，不包含仓位、
 PnL、策略门槛或真实下单代码。健康快照写入 `data/live_bbo/health/latest.csv`。
+
+## BBO paper trading
+
+`paper-bbo` 是采集器之上的独立纸面执行层，只模拟公开 BBO 上的成交。它仅处理含
+Gate 的四组 pair，并只接受 Gate 的 `NORMAL` / `TRANSIENT_DISLOCATION` 因果标签。
+100/150/200 bps 门槛作用于 `net_entry_edge_bps`：原始 long ask / short bid 边际先扣除
+四次保守 taker fee、四次滑点假设和安全缓冲，再连续满足 5 秒才开仓。
+
+容量判断只使用 metadata 标准化后的 underlying quantity 和 USD notional；单位未知、
+断连、陈旧、跨所时间差过大或容量不足都会 fail closed。总毛名义上限为 $1,000。
+
+```bash
+uv run skhynix-research paper-bbo
+uv run skhynix-research paper-bbo --duration-seconds 600
+```
+
+ledger 和日报位于 `data/paper_bbo/`。没有导入真实已结算 funding event 的结果明确标为
+`PRICE_ONLY_BEFORE_FUNDING`，不称为完整套利净收益。本模块没有认证、账户或真实下单路径。

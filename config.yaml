@@ -18,3 +18,22 @@ live_bbo:
   reconnect_max_seconds: 30
   parquet_flush_seconds: 5
   parquet_batch_rows: 500
+
+paper_bbo:
+  pairs: ["binance/gate", "bitget/gate", "gate/hyperliquid", "gate/okx"]
+  allowed_regimes: ["NORMAL", "TRANSIENT_DISLOCATION"]
+  entry_thresholds_bps: [100, 150, 200]
+  confirmation_seconds: 5
+  gross_notional_usd: 1000
+  max_open_positions: 1
+  exit_spread_bps: 20
+  max_holding_seconds: 86400
+  # Conservative research assumptions, bps per taker fill; not fee-tier claims.
+  taker_fee_bps:
+    binance: 10
+    bitget: 10
+    gate: 10
+    hyperliquid: 10
+    okx: 10
+  slippage_bps_per_fill: 2
+  safety_buffer_bps: 10
