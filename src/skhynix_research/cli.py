@@ -42,9 +42,13 @@ def main(argv=None):
     sub.add_parser("monitor-1m")
     sub.add_parser("report-live-1m")
     bbo=sub.add_parser("collect-bbo");bbo.add_argument("--duration-seconds",type=float,default=None)
+    paper=sub.add_parser("paper-bbo");paper.add_argument("--duration-seconds",type=float,default=None)
     args=ap.parse_args(argv)
     if args.cmd=="collect-bbo":
         from .live_bbo import run
+        run(args.duration_seconds);return 0
+    if args.cmd=="paper-bbo":
+        from .paper_trading import run
         run(args.duration_seconds);return 0
     if args.cmd=="collect-1m":
         if args.forever:
