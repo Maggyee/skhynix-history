@@ -311,15 +311,15 @@ settlement,gate/binance,2026-07-23 04:00:00+00:00,,0.00014,0.00063342,-0.0004934
 settlement_window,gate/binance,2026-07-23 04:00:00+00:00,,0.00014,0.00063342,-0.0004934200000000001,,1.8305519114013569,-1.6802743429747522,-0.15027756842660467,,real_settlement_plus_minus_4h,POST_20260720
 settlement,gate/binance,2026-07-23 08:00:00+00:00,,5e-05,6.207e-05,-1.2069999999999991e-05,-1.6802743429747522,,,,,real_settlement_event,POST_20260720
 settlement_window,gate/binance,2026-07-23 08:00:00+00:00,,5e-05,6.207e-05,-1.2069999999999991e-05,,-5.754733268113022,13.125652884731561,7.370919616618539,,real_settlement_plus_minus_4h,POST_20260720
-lag_correlation,gate/binance,,-24.0,,,,,,,,-0.005953045214481436,descriptive_forward_hold,
-lag_correlation,gate/binance,,-12.0,,,,,,,,-0.008970677648270371,descriptive_forward_hold,
-lag_correlation,gate/binance,,-8.0,,,,,,,,0.034061297039128594,descriptive_forward_hold,
-lag_correlation,gate/binance,,-4.0,,,,,,,,0.08120118570732895,descriptive_forward_hold,
-lag_correlation,gate/binance,,0.0,,,,,,,,0.04065888940456525,descriptive_forward_hold,
-lag_correlation,gate/binance,,4.0,,,,,,,,-0.03787125662087201,descriptive_forward_hold,
-lag_correlation,gate/binance,,8.0,,,,,,,,0.02916353073596936,descriptive_forward_hold,
-lag_correlation,gate/binance,,12.0,,,,,,,,0.14775780040873523,descriptive_forward_hold,
-lag_correlation,gate/binance,,24.0,,,,,,,,0.04083814571710241,descriptive_forward_hold,
+lag_correlation,gate/binance,,-24.0,,,,,,,,-0.005909317814723383,descriptive_forward_hold,
+lag_correlation,gate/binance,,-12.0,,,,,,,,-0.008892293849126594,descriptive_forward_hold,
+lag_correlation,gate/binance,,-8.0,,,,,,,,0.03412671244623197,descriptive_forward_hold,
+lag_correlation,gate/binance,,-4.0,,,,,,,,0.08125282094869965,descriptive_forward_hold,
+lag_correlation,gate/binance,,0.0,,,,,,,,0.040721282081778234,descriptive_forward_hold,
+lag_correlation,gate/binance,,4.0,,,,,,,,-0.03775274678666032,descriptive_forward_hold,
+lag_correlation,gate/binance,,8.0,,,,,,,,0.02925261688158809,descriptive_forward_hold,
+lag_correlation,gate/binance,,12.0,,,,,,,,0.14779107046628412,descriptive_forward_hold,
+lag_correlation,gate/binance,,24.0,,,,,,,,0.040906633338843944,descriptive_forward_hold,
 settlement,gate/bitget,2026-06-10 08:00:00+00:00,,0.00401,0.001,0.0030099999999999997,-24.522968983261205,,,,,real_settlement_event,PRE_20260716
 settlement_window,gate/bitget,2026-06-10 08:00:00+00:00,,0.00401,0.001,0.0030099999999999997,,,1.4294258598188736,,,real_settlement_plus_minus_4h,PRE_20260716
 settlement,gate/bitget,2026-06-10 16:00:00+00:00,,0.000223,0.0,0.000223,-16.661345311886304,,,,,real_settlement_event,PRE_20260716
@@ -406,7 +406,7 @@ settlement,gate/bitget,2026-06-24 00:00:00+00:00,,0.001,0.0,0.001,-21.7548948513
 settlement_window,gate/bitget,2026-06-24 00:00:00+00:00,,0.001,0.0,0.001,,-10.977845772946086,80.52217409870094,69.54432832575486,,real_settlement_plus_minus_4h,PRE_20260716
 settlement,gate/bitget,2026-06-24 08:00:00+00:00,,0.001,0.005,-0.004,51.77956698625798,,,,,real_settlement_event,PRE_20260716
 settlement_window,gate/bitget,2026-06-24 08:00:00+00:00,,0.001,0.005,-0.004,,80.52217409870094,-11.541472166197096,-68.98070193250385,,real_settlement_plus_minus_4h,PRE_20260716
-settlement,gate/bitget,2026-06-24 16:00:00+00:00,,0.001237,0.0,0.001237,-14.768278675074322,,,,,real_settlement_event,PRE_20260716
+settlement,gate/bitget,2026-06-24 16:00:00+00:00,,0.001237,0.0,0.001237,-31.921597728971772,,,,,real_settlement_event,PRE_20260716
 settlement_window,gate/bitget,2026-06-24 16:00:00+00:00,,0.001237,0.0,0.001237,,-11.541472166197096,41.287055131980956,29.74558296578386,,real_settlement_plus_minus_4h,PRE_20260716
 settlement,gate/bitget,2026-06-25 00:00:00+00:00,,0.003,0.000707,0.002293,127.0266020250703,,,,,real_settlement_event,PRE_20260716
 settlement_window,gate/bitget,2026-06-25 00:00:00+00:00,,0.003,0.000707,0.002293,,41.287055131980956,109.05298179369758,67.76592666171663,,real_settlement_plus_minus_4h,PRE_20260716
@@ -507,9 +507,9 @@ settlement_window,gate/bitget,2026-07-10 16:00:00+00:00,,0.000149,0.0,0.000149,,
 settlement,gate/bitget,2026-07-11 00:00:00+00:00,,0.000218,0.0,0.000218,183.60839086351967,,,,,real_settlement_event,PRE_20260716
 settlement_window,gate/bitget,2026-07-11 00:00:00+00:00,,0.000218,0.0,0.000218,,177.89870938196677,191.0542746555619,13.15556527359513,,real_settlement_plus_minus_4h,PRE_20260716
 settlement,gate/bitget,2026-07-11 08:00:00+00:00,,0.000362,0.0,0.000362,175.99941088063431,,,,,real_settlement_event,PRE_20260716
-settlement_window,gate/bitget,2026-07-11 08:00:00+00:00,,0.000362,0.0,0.000362,,191.0542746555619,175.1341538297248,-15.920120825837103,,real_settlement_plus_minus_4h,PRE_20260716
+settlement_window,gate/bitget,2026-07-11 08:00:00+00:00,,0.000362,0.0,0.000362,,191.0542746555619,,,,real_settlement_plus_minus_4h,PRE_20260716
 settlement,gate/bitget,2026-07-11 16:00:00+00:00,,0.000312,0.0,0.000312,189.3799979924379,,,,,real_settlement_event,PRE_20260716
-settlement_window,gate/bitget,2026-07-11 16:00:00+00:00,,0.000312,0.0,0.000312,,175.1341538297248,180.1921606436378,5.0580068139130105,,real_settlement_plus_minus_4h,PRE_20260716
+settlement_window,gate/bitget,2026-07-11 16:00:00+00:00,,0.000312,0.0,0.000312,,,180.1921606436378,,,real_settlement_plus_minus_4h,PRE_20260716
 settlement,gate/bitget,2026-07-12 00:00:00+00:00,,0.000501,0.0,0.000501,182.65665973415307,,,,,real_settlement_event,PRE_20260716
 settlement_window,gate/bitget,2026-07-12 00:00:00+00:00,,0.000501,0.0,0.000501,,180.1921606436378,184.3616236901024,4.169463046464585,,real_settlement_plus_minus_4h,PRE_20260716
 settlement,gate/bitget,2026-07-12 08:00:00+00:00,,0.000788,0.0,0.000788,179.67839976435718,,,,,real_settlement_event,PRE_20260716
@@ -630,15 +630,15 @@ settlement,gate/bitget,2026-07-23 00:00:00+00:00,,5e-05,0.0,5e-05,-12.1189486240
 settlement_window,gate/bitget,2026-07-23 00:00:00+00:00,,5e-05,0.0,5e-05,,-16.241879060470975,-14.189020765822937,-2.052858294648038,,real_settlement_plus_minus_4h,POST_20260720
 settlement,gate/bitget,2026-07-23 04:00:00+00:00,,0.00014,0.000909,-0.0007689999999999999,-14.189020765822937,,,,,real_settlement_event,POST_20260720
 settlement_window,gate/bitget,2026-07-23 04:00:00+00:00,,0.00014,0.000909,-0.0007689999999999999,,-12.118948624041389,-7.330034817665661,-4.788913806375728,,real_settlement_plus_minus_4h,POST_20260720
-lag_correlation,gate/bitget,,-24.0,,,,,,,,-0.15084504196341994,descriptive_forward_hold,
-lag_correlation,gate/bitget,,-12.0,,,,,,,,-0.21447624346211625,descriptive_forward_hold,
-lag_correlation,gate/bitget,,-8.0,,,,,,,,-0.17561526430667188,descriptive_forward_hold,
-lag_correlation,gate/bitget,,-4.0,,,,,,,,-0.13835294265674916,descriptive_forward_hold,
-lag_correlation,gate/bitget,,0.0,,,,,,,,-0.15109838566835543,descriptive_forward_hold,
-lag_correlation,gate/bitget,,4.0,,,,,,,,-0.23555566267849742,descriptive_forward_hold,
-lag_correlation,gate/bitget,,8.0,,,,,,,,-0.2511918273366045,descriptive_forward_hold,
-lag_correlation,gate/bitget,,12.0,,,,,,,,-0.14759039008303776,descriptive_forward_hold,
-lag_correlation,gate/bitget,,24.0,,,,,,,,-0.1290417027927373,descriptive_forward_hold,
+lag_correlation,gate/bitget,,-24.0,,,,,,,,-0.14882416923893066,descriptive_forward_hold,
+lag_correlation,gate/bitget,,-12.0,,,,,,,,-0.21180837757968013,descriptive_forward_hold,
+lag_correlation,gate/bitget,,-8.0,,,,,,,,-0.17524596938402778,descriptive_forward_hold,
+lag_correlation,gate/bitget,,-4.0,,,,,,,,-0.1358804524713188,descriptive_forward_hold,
+lag_correlation,gate/bitget,,0.0,,,,,,,,-0.14772452363890567,descriptive_forward_hold,
+lag_correlation,gate/bitget,,4.0,,,,,,,,-0.2313917477172227,descriptive_forward_hold,
+lag_correlation,gate/bitget,,8.0,,,,,,,,-0.2460443583303761,descriptive_forward_hold,
+lag_correlation,gate/bitget,,12.0,,,,,,,,-0.14296191332137825,descriptive_forward_hold,
+lag_correlation,gate/bitget,,24.0,,,,,,,,-0.12860770894545878,descriptive_forward_hold,
 settlement,gate/hyperliquid,2026-06-10 08:00:00+00:00,,0.00401,-0.0002186475,0.0042286475,58.02707930367472,,,,,real_settlement_event,PRE_20260716
 settlement_window,gate/hyperliquid,2026-06-10 08:00:00+00:00,,0.00401,-0.0002186475,0.0042286475,,,78.54391662261055,,,real_settlement_plus_minus_4h,PRE_20260716
 settlement,gate/hyperliquid,2026-06-10 16:00:00+00:00,,0.000223,-0.0005386043,0.0007616043,59.67949898692142,,,,,real_settlement_event,PRE_20260716
@@ -951,15 +951,15 @@ settlement,gate/hyperliquid,2026-07-23 04:00:00+00:00,,0.00014,-4.33902e-05,0.00
 settlement_window,gate/hyperliquid,2026-07-23 04:00:00+00:00,,0.00014,-4.33902e-05,0.00018339019999999998,,29.788046591560747,29.06754379254918,-0.720502799011566,,real_settlement_plus_minus_4h,POST_20260720
 settlement,gate/hyperliquid,2026-07-23 08:00:00+00:00,,5e-05,-4.91501e-05,9.91501e-05,29.06754379254918,,,,,real_settlement_event,POST_20260720
 settlement_window,gate/hyperliquid,2026-07-23 08:00:00+00:00,,5e-05,-4.91501e-05,9.91501e-05,,22.282838372585122,23.311834641386277,1.028996268801155,,real_settlement_plus_minus_4h,POST_20260720
-lag_correlation,gate/hyperliquid,,-24.0,,,,,,,,0.13400135087211082,descriptive_forward_hold,
-lag_correlation,gate/hyperliquid,,-12.0,,,,,,,,0.09064507228859688,descriptive_forward_hold,
-lag_correlation,gate/hyperliquid,,-8.0,,,,,,,,0.09340240968809292,descriptive_forward_hold,
-lag_correlation,gate/hyperliquid,,-4.0,,,,,,,,0.0930344653430291,descriptive_forward_hold,
-lag_correlation,gate/hyperliquid,,0.0,,,,,,,,0.11126562242970836,descriptive_forward_hold,
-lag_correlation,gate/hyperliquid,,4.0,,,,,,,,0.05524929633061872,descriptive_forward_hold,
-lag_correlation,gate/hyperliquid,,8.0,,,,,,,,0.035996205549121404,descriptive_forward_hold,
-lag_correlation,gate/hyperliquid,,12.0,,,,,,,,0.09082470434641221,descriptive_forward_hold,
-lag_correlation,gate/hyperliquid,,24.0,,,,,,,,0.08663379662822647,descriptive_forward_hold,
+lag_correlation,gate/hyperliquid,,-24.0,,,,,,,,0.13448695837017874,descriptive_forward_hold,
+lag_correlation,gate/hyperliquid,,-12.0,,,,,,,,0.09096566283444613,descriptive_forward_hold,
+lag_correlation,gate/hyperliquid,,-8.0,,,,,,,,0.09371926157871965,descriptive_forward_hold,
+lag_correlation,gate/hyperliquid,,-4.0,,,,,,,,0.0933495627589769,descriptive_forward_hold,
+lag_correlation,gate/hyperliquid,,0.0,,,,,,,,0.11157047506147706,descriptive_forward_hold,
+lag_correlation,gate/hyperliquid,,4.0,,,,,,,,0.05563888851395578,descriptive_forward_hold,
+lag_correlation,gate/hyperliquid,,8.0,,,,,,,,0.03638878511757098,descriptive_forward_hold,
+lag_correlation,gate/hyperliquid,,12.0,,,,,,,,0.09115857808785148,descriptive_forward_hold,
+lag_correlation,gate/hyperliquid,,24.0,,,,,,,,0.08697340364455801,descriptive_forward_hold,
 settlement,gate/okx,2026-06-10 08:00:00+00:00,,0.00401,0.0002538140808292,0.0037561859191708,0.7418122473195287,,,,,real_settlement_event,PRE_20260716
 settlement_window,gate/okx,2026-06-10 08:00:00+00:00,,0.00401,0.0002538140808292,0.0037561859191708,,,39.950250631288995,,,real_settlement_plus_minus_4h,PRE_20260716
 settlement,gate/okx,2026-06-10 16:00:00+00:00,,0.000223,0.0019356487673407,-0.0017126487673406999,24.270952083256386,,,,,real_settlement_event,PRE_20260716
@@ -1218,12 +1218,12 @@ settlement,gate/okx,2026-07-22 16:00:00+00:00,,0.000262,0.001347564728786,-0.001
 settlement_window,gate/okx,2026-07-22 16:00:00+00:00,,0.000262,0.001347564728786,-0.0010855647287859999,,17.4768593436475,10.086359566989954,-7.390499776657547,,real_settlement_plus_minus_4h,POST_20260720
 settlement,gate/okx,2026-07-23 00:00:00+00:00,,5e-05,0.0010665734628158,-0.0010165734628158,12.43909232782815,,,,,real_settlement_event,POST_20260720
 settlement_window,gate/okx,2026-07-23 00:00:00+00:00,,5e-05,0.0010665734628158,-0.0010165734628158,,10.086359566989954,11.288891960696436,1.2025323937064822,,real_settlement_plus_minus_4h,POST_20260720
-lag_correlation,gate/okx,,-24.0,,,,,,,,0.08706144063955994,descriptive_forward_hold,
-lag_correlation,gate/okx,,-12.0,,,,,,,,0.04046821122278549,descriptive_forward_hold,
-lag_correlation,gate/okx,,-8.0,,,,,,,,0.071029712295446,descriptive_forward_hold,
-lag_correlation,gate/okx,,-4.0,,,,,,,,0.08842009212470772,descriptive_forward_hold,
-lag_correlation,gate/okx,,0.0,,,,,,,,0.025940929155834364,descriptive_forward_hold,
-lag_correlation,gate/okx,,4.0,,,,,,,,-0.03203532625270656,descriptive_forward_hold,
-lag_correlation,gate/okx,,8.0,,,,,,,,0.06939197961740672,descriptive_forward_hold,
-lag_correlation,gate/okx,,12.0,,,,,,,,0.17422557532901953,descriptive_forward_hold,
-lag_correlation,gate/okx,,24.0,,,,,,,,0.13837811207871573,descriptive_forward_hold,
+lag_correlation,gate/okx,,-24.0,,,,,,,,0.09551726416985018,descriptive_forward_hold,
+lag_correlation,gate/okx,,-12.0,,,,,,,,0.04989565260783224,descriptive_forward_hold,
+lag_correlation,gate/okx,,-8.0,,,,,,,,0.07988781256265912,descriptive_forward_hold,
+lag_correlation,gate/okx,,-4.0,,,,,,,,0.09701346691761809,descriptive_forward_hold,
+lag_correlation,gate/okx,,0.0,,,,,,,,0.033699687743716795,descriptive_forward_hold,
+lag_correlation,gate/okx,,4.0,,,,,,,,-0.024020447012124142,descriptive_forward_hold,
+lag_correlation,gate/okx,,8.0,,,,,,,,0.07626775928607271,descriptive_forward_hold,
+lag_correlation,gate/okx,,12.0,,,,,,,,0.18001025239972168,descriptive_forward_hold,
+lag_correlation,gate/okx,,24.0,,,,,,,,0.1447062096927138,descriptive_forward_hold,

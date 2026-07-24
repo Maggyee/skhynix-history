@@ -1,0 +1,2 @@
+lookback_bars,structural_median_bps,structural_same_sign_ratio,transient_current_bps,transient_max_structural_median_bps,transient_mad_multiplier,mad_floor_bps,parameter_scope
+96,50.0,0.8,100.0,50.0,5.0,1.0,RESEARCH_INPUT_NOT_FUTURE_STRATEGY_LOCK

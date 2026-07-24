@@ -30,18 +30,39 @@ EXCHANGES = ("binance", "bitget", "gate", "hyperliquid", "okx")
 EXTERNAL_TRADE = ("binance", "bitget", "okx")
 EXTERNAL_MARK = ("binance", "bitget", "okx")
 THRESHOLDS = (20, 50, 100, 150, 200)
+STRICT_EXTERNAL_SCOPE = "STRICT_3_OF_3_EXTERNAL"
+SENSITIVITY_EXTERNAL_SCOPE = "AVAILABLE_2_OF_3_SENSITIVITY"
+RETROSPECTIVE_CHANGE_POINTS = "RETROSPECTIVE_CHANGE_POINTS"
+CAUSAL_REGIME_LABELS = "CAUSAL_REGIME_LABELS"
+CAUSAL_REGIMES = (
+    "NORMAL", "TRANSIENT_DISLOCATION", "STRUCTURAL_PREMIUM", "STALE_OR_INVALID"
+)
+CAUSAL_RESEARCH_PARAMS = {
+    "lookback_bars": 96,
+    "structural_median_bps": 50.0,
+    "structural_same_sign_ratio": 0.80,
+    "transient_current_bps": 100.0,
+    "transient_max_structural_median_bps": 50.0,
+    "transient_mad_multiplier": 5.0,
+    "mad_floor_bps": 1.0,
+}
 R15 = ROOT / "reports_15m"
 CHARTS = R15 / "charts"
 
 
-def regime_for_time(value) -> str:
-    """Preset regimes are left-closed and right-open."""
+def manual_period_for_time(value) -> str:
+    """Return the descriptive manual date segment; never use this for trading."""
     t = parse_utc(value)
     if t < PRESET_START:
         return "PRE_20260716"
     if t < PRESET_END:
         return "GATE_REGIME_20260716_20260720"
     return "POST_20260720"
+
+
+# Compatibility for historical report code.  The name is intentionally not
+# exposed by the strategy-facing causal provider below.
+regime_for_time = manual_period_for_time
 
 
 def _bps(a, b):
@@ -78,13 +99,28 @@ def strict_wide(prices: pd.DataFrame, price_type: str, exchanges=EXCHANGES) -> p
 
 
 def external_median(wide: pd.DataFrame, exchanges=EXTERNAL_TRADE) -> pd.Series:
-    """Median of all presently available specified external venues, never Gate."""
+    """Strict external median: all three specified venues must be present."""
     if "gate" in exchanges:
         raise ValueError("Gate cannot enter the external market median")
-    columns = [x for x in exchanges if x in wide.columns]
-    if not columns:
+    columns = list(exchanges)
+    if any(x not in wide.columns for x in columns):
         return pd.Series(index=wide.index, dtype=float)
-    return wide[columns].median(axis=1, skipna=True).where(wide[columns].notna().any(axis=1))
+    external = wide[columns]
+    return external.median(axis=1).where(external.notna().all(axis=1))
+
+
+def external_sensitivity(wide: pd.DataFrame, exchanges=EXTERNAL_TRADE) -> pd.DataFrame:
+    """Return the exactly-two-of-three sensitivity series, never the main series."""
+    if "gate" in exchanges:
+        raise ValueError("Gate cannot enter the external market median")
+    columns = list(exchanges)
+    external = wide.reindex(columns=columns)
+    count = external.notna().sum(axis=1)
+    return pd.DataFrame({
+        "external_venue_count": count,
+        "external_scope": SENSITIVITY_EXTERNAL_SCOPE,
+        "available_2_of_3_external_median": external.median(axis=1).where(count.eq(2)),
+    }, index=wide.index).loc[count.eq(2)]
 
 
 def build_core(prices: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -93,7 +129,12 @@ def build_core(prices: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.Dat
     trade = strict_wide(p, "trade")
     mark = strict_wide(p, "mark", ("binance", "bitget", "gate", "okx"))
     index = strict_wide(p, "index", ("binance", "bitget", "gate", "okx"))
+    trade["external_venue_count"] = trade.reindex(columns=EXTERNAL_TRADE).notna().sum(axis=1)
+    trade["external_scope"] = STRICT_EXTERNAL_SCOPE
     trade["market_trade_median"] = external_median(trade)
+    trade["available_2_of_3_market_trade_median"] = external_sensitivity(trade)[
+        "available_2_of_3_external_median"
+    ].reindex(trade.index)
     mark["market_mark_median"] = external_median(mark, EXTERNAL_MARK)
     for ex in ("binance", "bitget", "hyperliquid", "okx"):
         trade[f"gate_vs_{ex}_bps"] = _bps(trade.get("gate"), trade.get(ex))
@@ -116,6 +157,113 @@ def build_core(prices: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.Dat
     for frame in (trade, mark, d):
         frame["regime"] = [regime_for_time(x) for x in frame.index]
     return trade, mark, d
+
+
+def _valid_trade_ohlc(prices: pd.DataFrame, index: pd.DatetimeIndex) -> pd.DataFrame:
+    p = _native_prices(prices)
+    p = p[(p.price_type == "trade") & p.exchange.isin(("gate",) + EXTERNAL_TRADE)].copy()
+    valid = (
+        p[["open", "high", "low", "close"]].notna().all(axis=1)
+        & (p[["open", "high", "low", "close"]] > 0).all(axis=1)
+        & (p.high >= p[["open", "close"]].max(axis=1))
+        & (p.low <= p[["open", "close"]].min(axis=1))
+    )
+    p["valid_ohlc"] = valid
+    return p.pivot(index="open_time", columns="exchange", values="valid_ohlc").reindex(index)
+
+
+def build_causal_regime_labels(
+    prices: pd.DataFrame, params: dict | None = None
+) -> pd.DataFrame:
+    """Build past-only labels on a complete 15-minute grid.
+
+    Parameters are research inputs, not full-sample optimized strategy values.
+    A missing or invalid bar makes the following lookback window unavailable,
+    preventing a gap from being silently treated as continuous history.
+    """
+    cfg = {**CAUSAL_RESEARCH_PARAMS, **(params or {})}
+    trade, _, _ = build_core(prices)
+    grid = pd.date_range(trade.index.min(), trade.index.max(), freq=BAR, tz="UTC")
+    trade = trade.reindex(grid)
+    ohlc = _valid_trade_ohlc(prices, grid).reindex(columns=("gate",) + EXTERNAL_TRADE)
+    premium = trade.gate_premium_vs_market_median_bps
+    count = trade.reindex(columns=EXTERNAL_TRADE).notna().sum(axis=1)
+    price_valid = (
+        trade.reindex(columns=("gate",) + EXTERNAL_TRADE).notna().all(axis=1)
+        & (trade.reindex(columns=("gate",) + EXTERNAL_TRADE) > 0).all(axis=1)
+    )
+    ohlc_valid = ohlc.notna().all(axis=1) & ohlc.fillna(False).all(axis=1)
+    current_valid = count.eq(3) & price_valid & ohlc_valid & premium.notna()
+    lookback = int(cfg["lookback_bars"])
+    continuity_valid = current_valid & current_valid.shift(1, fill_value=False)
+    history_ready = current_valid.rolling(lookback, min_periods=lookback).sum().eq(lookback)
+
+    out = pd.DataFrame(index=grid)
+    out.index.name = "open_time"
+    out["gate_premium_vs_market_median_bps"] = premium
+    out["external_venue_count"] = count.astype("Int64")
+    out["external_scope"] = STRICT_EXTERNAL_SCOPE
+    for hours in (4, 12, 24):
+        bars = hours * 4
+        out[f"rolling_median_{hours}h_bps"] = premium.rolling(bars, min_periods=bars).median()
+    median24 = out["rolling_median_24h_bps"]
+    out["rolling_mad_24h_bps"] = (
+        premium - median24
+    ).abs().rolling(96, min_periods=96).median()
+    direction = np.sign(median24)
+    same_sign = pd.Series(
+        np.where(direction >= 0, premium > 0, premium < 0), index=grid, dtype=float
+    )
+    same_sign[premium.isna() | median24.isna()] = np.nan
+    out["same_sign_ratio_24h"] = same_sign.rolling(96, min_periods=96).mean()
+
+    structural = (
+        history_ready
+        & median24.abs().ge(float(cfg["structural_median_bps"]))
+        & out.same_sign_ratio_24h.ge(float(cfg["structural_same_sign_ratio"]))
+    )
+    mad_scale = out.rolling_mad_24h_bps.clip(lower=float(cfg["mad_floor_bps"]))
+    transient = (
+        history_ready
+        & premium.abs().ge(float(cfg["transient_current_bps"]))
+        & median24.abs().lt(float(cfg["transient_max_structural_median_bps"]))
+        & (premium - median24).abs().ge(float(cfg["transient_mad_multiplier"]) * mad_scale)
+    )
+    out["causal_regime"] = "NORMAL"
+    out.loc[transient, "causal_regime"] = "TRANSIENT_DISLOCATION"
+    out.loc[structural, "causal_regime"] = "STRUCTURAL_PREMIUM"
+    out.loc[~continuity_valid, "causal_regime"] = "STALE_OR_INVALID"
+
+    reason = pd.Series("VALID_OTHERWISE_NORMAL", index=grid, dtype=object)
+    reason.loc[transient] = "CURRENT_EDGE_ABNORMAL_VS_PAST_24H_MAD"
+    reason.loc[structural] = "PAST_24H_DIRECTED_MEDIAN_AND_SIGN_PERSISTENCE"
+    reason.loc[~continuity_valid] = "CURRENT_OR_PREVIOUS_BAR_NOT_CONTIGUOUS_VALID"
+    reason.loc[~ohlc_valid] = "INVALID_OR_MISSING_OHLC"
+    reason.loc[~price_valid] = "GATE_OR_EXTERNAL_PRICE_INVALID"
+    reason.loc[count.lt(3)] = "STRICT_EXTERNAL_3_OF_3_MISSING"
+    out["regime_reason"] = reason
+    out["is_entry_allowed"] = out.causal_regime.isin(("NORMAL", "TRANSIENT_DISLOCATION"))
+    if not set(out.causal_regime.unique()) <= set(CAUSAL_REGIMES):
+        raise AssertionError("unexpected causal regime")
+    return out.reset_index()
+
+
+def causal_regime_for_time(labels: pd.DataFrame, value) -> str:
+    """Strategy-facing lookup; accepts causal labels only, never change points."""
+    required = {"open_time", "causal_regime"}
+    if not required <= set(labels.columns):
+        raise ValueError("causal label frame required; retrospective change points are forbidden")
+    t = parse_utc(value).floor("15min")
+    frame = labels.copy()
+    frame["open_time"] = pd.to_datetime(frame.open_time, utc=True)
+    row = frame.loc[frame.open_time.eq(t), "causal_regime"]
+    return row.iloc[-1] if len(row) else "STALE_OR_INVALID"
+
+
+def causal_regime_summary(labels: pd.DataFrame) -> pd.DataFrame:
+    """Return all allowed categories, including categories with zero bars."""
+    counts = labels.causal_regime.value_counts().reindex(CAUSAL_REGIMES, fill_value=0)
+    return counts.rename_axis("causal_regime").rename("bar_count").reset_index()
 
 
 def _longest_minutes(times: pd.Series | pd.DatetimeIndex, active) -> int:
@@ -248,7 +396,39 @@ def detect_change_points(trade: pd.DataFrame) -> pd.DataFrame:
                     "post_p95_abs_bps":b.abs().quantile(.95),"confidence_metric":max(pos,-neg),"method":"robust_cusum"})
                 last=t
             pos=neg=0.0
-    return pd.DataFrame(rows).sort_values(["method", "confidence_metric"], ascending=[True, False]).reset_index(drop=True)
+    result = pd.DataFrame(rows).sort_values(
+        ["method", "confidence_metric"], ascending=[True, False]
+    ).reset_index(drop=True)
+    result["analysis_scope"] = RETROSPECTIVE_CHANGE_POINTS
+    result["uses_pre_and_post_windows"] = True
+    result["uses_full_sample"] = True
+    result["strategy_eligible"] = False
+    return result
+
+
+def retrospective_segments(changes: pd.DataFrame, index: pd.DatetimeIndex) -> pd.DataFrame:
+    """Create five historical explanation segments from full-sample change points."""
+    labels = ("BASELINE", "BUILDUP", "STRUCTURAL_PREMIUM", "NORMALIZATION", "POST_NORMALIZATION")
+    start, end = pd.DatetimeIndex(index).min(), pd.DatetimeIndex(index).max() + BAR
+    if changes.empty:
+        return pd.DataFrame([{
+            "retrospective_segment": "BASELINE", "start_time": start, "end_time": end,
+            "analysis_scope": RETROSPECTIVE_CHANGE_POINTS, "strategy_eligible": False,
+        }])
+    ranked = changes.sort_values("confidence_metric", ascending=False)
+    picked = []
+    for t in pd.to_datetime(ranked.change_time, utc=True):
+        if start < t < end and all(abs(t - old) >= pd.Timedelta(hours=12) for old in picked):
+            picked.append(t)
+        if len(picked) == 4:
+            break
+    picked = sorted(picked)
+    bounds = [start, *picked, end]
+    names = labels[: len(bounds) - 1]
+    return pd.DataFrame([{
+        "retrospective_segment": name, "start_time": left, "end_time": right,
+        "analysis_scope": RETROSPECTIVE_CHANGE_POINTS, "strategy_eligible": False,
+    } for name, left, right in zip(names, bounds[:-1], bounds[1:])])
 
 
 def continuous_events(trade: pd.DataFrame) -> pd.DataFrame:
@@ -501,7 +681,7 @@ def _markdown(frame: pd.DataFrame, index: bool = True, digits: int = 2) -> str:
     return "\n".join(lines)
 
 
-def write_report(summary,decomp,changes,dq,liq_summary,session_summary,nongate_summary,funding,hypotheses,trade,events,external):
+def write_report(summary,decomp,changes,dq,liq_summary,session_summary,nongate_summary,funding,hypotheses,trade,events,external,causal,retro):
     pair=summary[summary.row_type=="pair"]
     piv=pair.pivot(index="regime",columns="pair",values="p95_abs_bps")
     dmed=decomp.pivot(index="regime",columns="component_name",values="median_bps")
@@ -522,17 +702,28 @@ def write_report(summary,decomp,changes,dq,liq_summary,session_summary,nongate_s
     settle=funding[funding.record_type=="settlement_window"].dropna(subset=["abs_premium_change_after_settlement_bps"])
     settle_text=", ".join(f"{k}={_fmt(g.abs_premium_change_after_settlement_bps.median())}bps" for k,g in settle.groupby("regime",dropna=False))
     external_note=(f"已使用 {int((external.verified==True).sum())} 条已核验外部来源；它们仅作为候选机制。" if len(external) else "外部原因未验证。")
+    strict = trade.gate_premium_vs_market_median_bps.dropna()
+    causal_counts = causal_regime_summary(causal).set_index("causal_regime")
     lines=["# Gate 原生15分钟价差 regime 原因诊断","","## 1. 直接结论","",
-        f"- **高置信度**：可观测窗口为 `{trade.index.min()}` 至 `{trade.index.max()+BAR}`（左闭右开）。首次连续阈值事件：{onset_text} UTC；数据驱动上移候选在 6月22—24日，因此7月16日不是起点。",
+        f"- **高置信度**：严格3-of-3外部基准窗口为 `{strict.index.min()}` 至 `{strict.index.max()+BAR}`（左闭右开）。首次连续阈值事件：{onset_text} UTC；数据驱动上移候选在 6月22—24日，因此7月16日不是起点。",
         f"- **高置信度**：这是长期结构性Gate基差叠加波动regime。Gate/外部中位数P95在 PRE 为 {_fmt(p95_total.get('PRE_20260716'))} bps、7/16—20 为 {_fmt(p95_total.get('GATE_REGIME_20260716_20260720'))} bps、POST 为 {_fmt(p95_total.get('POST_20260720'))} bps；7/16工作日延续高位，但完整预设窗口不是相对PRE的额外放大，7/17后的下移才是最强变点。",
         f"- **中等置信度**：7/16—20典型偏差最大层为 `{dominant}`，尾部P95最大层为 `{tail_dom}`；PRE主要是index-market层。对称bps分量不是严格可加，残差已单列。",
-        f"- **高置信度**：低流动性不足以解释；高溢价桶落入最低成交量十分位的最高分段占比仅 {_fmt(100*low_share,2)}%，且低量组P95显著小于正常量组。相关性不作因果解释。",
+        f"- **高置信度**：低15分钟成交量和陈旧trade close不足以解释；高溢价桶落入最低成交量十分位的最高分段占比仅 {_fmt(100*low_share,2)}%。由于缺少历史BBO和深度，订单簿流动性仍无法确认。相关性不作因果解释。",
         f"- **高置信度**：数据错误判定为 `{'DATA_ERROR_SUPPORTED' if (dq.conclusion=='DATA_ERROR_SUPPORTED').any() else 'DATA_ERROR_NOT_SUPPORTED'}`（个别不可验证项仍为 INCONCLUSIVE）。",
         "- **无法确认**：15分钟成交收盘不是BBO；没有历史bid/ask和深度，不能确认实际可成交价差或容量。","",
-        "### Gate/四家分 regime P95 绝对价差（bps）","",_markdown(piv,digits=1),"",
+        "## 2. 三类分段严格分离","",
+        "### 2.1 人工日期段（仅描述）","",
+        "`PRE_20260716`、`GATE_REGIME_20260716_20260720`、`POST_20260720` 仅用于人工日期对照，不是实时标签。","",
+        "### 2.2 数据驱动历史解释段（retrospective）","",
+        "这些边界可使用变点前后窗口与完整样本，只用于历史解释，不能用于策略，也不能称为实时可识别标签。","",
+        _markdown(retro,index=False),"",
+        "### 2.3 因果实时标签统计","",
+        "仅使用当前及过去bar；研究参数单独输出，不宣称为完整样本最优的未来策略参数。","",
+        _markdown(causal_counts,digits=0),"",
+        "### Gate/四家分人工日期段 P95 绝对价差（bps）","",_markdown(piv,digits=1),"",
         "### trade / mark / index 分解中位数（bps）","",_markdown(dmed,digits=2),"",
         "## 2. 已由数据确认","",
-        f"- 主比较只用原生15分钟trade close，完全相同 `open_time`；未填充缺口。外部trade中位数只含 {', '.join(EXTERNAL_TRADE)}。",
+        f"- 主比较只用原生15分钟trade close，完全相同 `open_time`；未填充缺口。外部trade中位数固定为 {', '.join(EXTERNAL_TRADE)} 且要求严格3-of-3齐全；两家结果只在 sensitivity CSV 单列。",
         "- 外部mark中位数只含 Binance、Bitget、OKX；Hyperliquid没有可比历史mark，未加入。",
         f"- KRX实际交易日历重开后1小时的溢价变化中位数（负数为收敛）：{krx_text}；并非所有regime都在开盘后系统性收敛。周末、工作日、美国时段与UTC小时的完整分组见 sessions CSV。",
         f"- 自动变点候选共 {len(changes)} 个；最高置信候选如下：","",_markdown(top,index=False,digits=2) if len(top) else "无足够数据", "",
@@ -567,14 +758,15 @@ def write_report(summary,decomp,changes,dq,liq_summary,session_summary,nongate_s
     path=R15/"gate_regime_15m_diagnostics.md"; path.write_text("\n".join(lines),encoding="utf-8"); return path
 
 
-def update_quick_report(report_path: Path, summary: pd.DataFrame, decomp: pd.DataFrame, changes: pd.DataFrame):
+def update_quick_report(report_path: Path, summary: pd.DataFrame, decomp: pd.DataFrame, changes: pd.DataFrame, causal: pd.DataFrame, retro: pd.DataFrame):
     if not report_path.exists(): return
     doc=report_path.read_text(encoding="utf-8"); start="<!-- GATE_REGIME_15M_START -->"; end="<!-- GATE_REGIME_15M_END -->"
     if start in doc and end in doc: doc=doc[:doc.index(start)]+doc[doc.index(end)+len(end):]
     p=summary.pivot(index="regime",columns="pair",values="p95_abs_bps").round(1)
     d=decomp.pivot(index="regime",columns="component_name",values="median_bps").round(2)
     cp=changes.sort_values("confidence_metric",ascending=False).head(5)
-    section=f'''{start}<section id="gate-regime-15m"><h2>Gate 15分钟 regime 独立诊断</h2><p><strong>直接结论：</strong>大价差在6月23日前后已经出现，7月16日不是起点；7月16工作日延续高位，但7/16—20整段P95不高于PRE，最强自动变点是7月17日向下正常化。PRE主要偏在Gate index相对外部市场，7/16—20的典型偏差主要在mark-index层。低成交量不足以解释，数据错误未获支持；trade close不是可执行BBO，实际套利仍无法确认。</p><h3>Gate/四家P95绝对价差（bps）</h3>{p.to_html(classes="dataframe",border=0)}<h3>trade/mark/index分解中位数（bps）</h3>{d.to_html(classes="dataframe",border=0)}<h3>最高置信自动变点</h3>{cp.to_html(index=False,classes="dataframe",border=0)}<p><a href="gate_regime_15m_diagnostics.md">完整诊断、限制与假设评分</a></p></section>{end}'''
+    cc=causal_regime_summary(causal).set_index("causal_regime")
+    section=f'''{start}<section id="gate-regime-15m"><h2>Gate 15分钟 regime 独立诊断</h2><p><strong>主统计口径：</strong>{STRICT_EXTERNAL_SCOPE}，固定 median(binance, bitget, okx)，同一open_time严格3-of-3齐全。两家可用结果仅进入独立敏感性文件。</p><p><strong>直接结论：</strong>大价差在6月23日前后已经出现，7月16日不是起点。低15分钟成交量和陈旧trade close不足以解释；由于缺少历史BBO和深度，订单簿流动性仍无法确认。</p><h3>人工日期段统计（仅描述）</h3>{p.to_html(classes="dataframe",border=0)}<h3>历史解释段（retrospective，不可用于策略）</h3>{retro.to_html(index=False,classes="dataframe",border=0)}<h3>因果实时标签统计</h3>{cc.to_html(classes="dataframe",border=0)}<h3>trade/mark/index分解中位数（bps）</h3>{d.to_html(classes="dataframe",border=0)}<h3>最高置信回看变点</h3>{cp.to_html(index=False,classes="dataframe",border=0)}<p><a href="gate_regime_15m_diagnostics.md">完整诊断、限制与假设评分</a></p></section>{end}'''
     marker="</main>" if "</main>" in doc else "</body>"; doc=doc.replace(marker,section+marker,1); report_path.write_text(doc,encoding="utf-8")
 
 
@@ -583,7 +775,12 @@ def run(root: Path=ROOT) -> dict:
     ROOT=Path(root);R15=ROOT/"reports_15m";CHARTS=R15/"charts";R15.mkdir(parents=True,exist_ok=True);CHARTS.mkdir(parents=True,exist_ok=True)
     prices=pd.read_parquet(ROOT/"data/normalized/prices_15m.parquet"); funding=pd.read_parquet(ROOT/"data/normalized/funding_events.parquet")
     trade,mark,decomposition=build_core(prices); summary=summarize_pairs(trade); consistency=cross_sectional_consistency(trade)
-    decomp_summary=summarize_decomposition(decomposition); rolling=rolling_diagnostics(trade); changes=detect_change_points(trade); events=continuous_events(trade)
+    sensitivity=external_sensitivity(trade)
+    sensitivity["gate_premium_vs_external_median_bps"]=_bps(
+        trade.gate.reindex(sensitivity.index), sensitivity.available_2_of_3_external_median
+    )
+    causal=build_causal_regime_labels(prices)
+    decomp_summary=summarize_decomposition(decomposition); rolling=rolling_diagnostics(trade); changes=detect_change_points(trade); retro=retrospective_segments(changes,trade.index); events=continuous_events(trade)
     dq=data_quality(prices,trade); liquidity,liq_summary=liquidity_analysis(prices,trade); sessions,session_summary=session_analysis(trade)
     nongate,nongate_summary=nongate_analysis(trade); fund=funding_analysis(funding,trade)
     external_path=R15/"gate_external_event_timeline.csv"; external=pd.read_csv(external_path) if external_path.exists() else pd.DataFrame(columns=["event_time","event_type","title","source","source_url","verified","possible_mechanism","supports_hypothesis","contradicts_hypothesis"])
@@ -595,10 +792,16 @@ def run(root: Path=ROOT) -> dict:
     session_summary.to_csv(R15/"gate_regime_15m_sessions.csv",index=False); nongate_summary.to_csv(R15/"gate_regime_15m_nongate.csv",index=False)
     sessions.to_csv(R15/"gate_regime_15m_session_features.csv",index=False); liquidity.to_csv(R15/"gate_regime_15m_liquidity_bars.csv",index=False)
     hypotheses.to_csv(R15/"gate_regime_15m_hypotheses.csv",index=False); rolling.reset_index().to_csv(R15/"gate_regime_15m_rolling.csv",index=False)
+    sensitivity.reset_index(names="open_time").to_csv(R15/"gate_external_sensitivity_15m.csv",index=False)
+    causal.to_csv(R15/"gate_causal_regime_labels_15m.csv",index=False)
+    causal_regime_summary(causal).to_csv(R15/"gate_causal_regime_summary_15m.csv",index=False)
+    retro.to_csv(R15/"gate_retrospective_segments_15m.csv",index=False)
+    pd.DataFrame([CAUSAL_RESEARCH_PARAMS | {"parameter_scope":"RESEARCH_INPUT_NOT_FUTURE_STRATEGY_LOCK"}]).to_csv(R15/"gate_causal_regime_params_15m.csv",index=False)
     make_charts(trade,rolling,decomposition,liquidity,sessions,nongate,fund,events,changes)
-    report=write_report(summary,decomp_summary,changes,dq,liq_summary,session_summary,nongate_summary,fund,hypotheses,trade,events,external)
-    update_quick_report(R15/"quick_report_15m.html",summary,decomp_summary,changes)
-    return {"price_start":trade.index.min(),"price_end_exclusive":trade.index.max()+BAR,"summary":summary,"changes":changes,"report":report}
+    report=write_report(summary,decomp_summary,changes,dq,liq_summary,session_summary,nongate_summary,fund,hypotheses,trade,events,external,causal,retro)
+    update_quick_report(R15/"quick_report_15m.html",summary,decomp_summary,changes,causal,retro)
+    strict=trade.gate_premium_vs_market_median_bps.dropna()
+    return {"price_start":strict.index.min(),"price_end_exclusive":strict.index.max()+BAR,"summary":summary,"changes":changes,"causal":causal,"report":report}
 
 
 def main(argv=None):
