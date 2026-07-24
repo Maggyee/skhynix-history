@@ -31,6 +31,13 @@ def main(argv=None):
     q=sub.add_parser("quick");q.add_argument("--start",default=load_config()["start"]);q.add_argument("--end",default="now")
     ah=sub.add_parser("audit-history");ah.add_argument("--start",default=load_config()["start"]);ah.add_argument("--end",default="now")
     m15=sub.add_parser("analysis-15m");m15.add_argument("--start",default="2026-06-10T06:00:00Z");m15.add_argument("--end",default="now")
+    wf=sub.add_parser("high-threshold-walk-forward")
+    wf.add_argument("--prices",type=Path,default=ROOT/"data/normalized/prices_15m.parquet")
+    wf.add_argument("--funding",type=Path,default=ROOT/"data/normalized/funding_events.parquet")
+    wf.add_argument("--output-dir",type=Path,default=ROOT/"reports_high_threshold_walk_forward")
+    wf.add_argument("--train-bars",type=int,default=7*24*4);wf.add_argument("--test-bars",type=int,default=2*24*4)
+    wf.add_argument("--step-bars",type=int);wf.add_argument("--bootstrap-samples",type=int,default=2000)
+    wf.add_argument("--future-oos-start",help="参数锁定UTC边界；省略则全部标记为历史伪样本外")
     live=sub.add_parser("collect-1m");live.add_argument("--forever",action="store_true");live.add_argument("--lookback-minutes",type=int,default=5);live.add_argument("--funding-lookback-hours",type=int,default=24);live.add_argument("--poll-seconds",type=int,default=60);live.add_argument("--grace-seconds",type=int,default=8)
     sub.add_parser("monitor-1m")
     sub.add_parser("report-live-1m")
@@ -48,6 +55,12 @@ def main(argv=None):
         print(f"1m common={window.global_start} to {window.global_end_exclusive}; coverage={window.all_five_coverage_pct:.1f}%; reports={summary}, {html}");return 0
     if args.cmd=="discover":
         m,e=discover_all();print(m[["exchange","resolved_symbol","status","listing_time","contract_type"]].to_string(index=False));return 0 if (m.status!="failed").any() else 1
+    if args.cmd=="high-threshold-walk-forward":
+        from .high_threshold_walk_forward import WalkForwardConfig, run_walk_forward
+        cfg=WalkForwardConfig(train_bars=args.train_bars,test_bars=args.test_bars,step_bars=args.step_bars,
+            bootstrap_samples=args.bootstrap_samples,future_oos_start=args.future_oos_start)
+        result=run_walk_forward(pd.read_parquet(args.prices),pd.read_parquet(args.funding) if args.funding.exists() else None,cfg,args.output_dir)
+        print(f"folds={len(result['folds'])}; events={len(result['events'])}; output={result['output_dir']}");return 0
     start=parse_utc(args.start); end=end_value(args.end)
     if args.cmd=="audit-history":
         print(audit_history_coverage(start,end));return 0
