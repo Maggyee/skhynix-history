@@ -10,8 +10,6 @@ http:
   max_attempts: 5
   min_interval_seconds: 0.08
 
-# Frozen phase-one executable-BBO paper strategy.  Changes to this block are
-# strategy changes and must not be inferred or fitted by the live process.
 live_bbo:
   stale_after_ms: 3000
   max_cross_exchange_skew_ms: 1500
@@ -20,11 +18,3 @@ live_bbo:
   reconnect_max_seconds: 30
   parquet_flush_seconds: 5
   parquet_batch_rows: 500
-  paper:
-    gross_notional_usd: 1000
-    max_open_positions: 1
-    entry_thresholds_bps: [100, 150, 200]
-    allowed_regimes: [POST_20260720]
-    exit_spread_bps: 20
-    max_holding_seconds: 86400
-    fee_bps_per_leg: 0
