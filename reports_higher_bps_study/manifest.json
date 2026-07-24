@@ -1,0 +1,50 @@
+{
+  "oos_kind": "HISTORICAL_ROLLING_PSEUDO_OOS",
+  "execution_model": "NEXT_CONTIGUOUS_15M_BAR_OPEN_PROXY",
+  "thresholds": [
+    20,
+    50,
+    100,
+    150,
+    200,
+    250,
+    300,
+    400,
+    500
+  ],
+  "costs": [
+    0,
+    20,
+    40,
+    58,
+    80
+  ],
+  "baseline_windows_hours": [
+    24,
+    72
+  ],
+  "exit_policies": [
+    "LEGACY_RAW_EXIT",
+    "BASELINE_RESIDUAL_EXIT",
+    "FRACTIONAL_RESIDUAL_EXIT"
+  ],
+  "statuses": [
+    "REALIZED",
+    "RIGHT_CENSORED",
+    "NO_NEXT_BAR_FOR_ENTRY",
+    "NO_NEXT_BAR_FOR_EXIT",
+    "DATA_GAP_DURING_HOLD",
+    "INVALID_PRICE",
+    "INSUFFICIENT_HISTORY",
+    "REGIME_FILTERED"
+  ],
+  "config": {
+    "train_bars": 672,
+    "test_bars": 192,
+    "bootstrap_samples": 1000,
+    "confidence_level": 0.95,
+    "random_seed": 260724
+  },
+  "historical_bbo_reconstructed": false,
+  "paper_only": true
+}

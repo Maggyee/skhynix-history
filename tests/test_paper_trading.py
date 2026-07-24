@@ -26,7 +26,7 @@ def quote(exchange, bid, ask, *, native_size=100, multiplier=1.0, ts=NOW, seq=1,
 def settings(**overrides):
     result = {"pairs":["binance/gate", "bitget/gate", "gate/hyperliquid", "gate/okx"],
         "allowed_regimes":["NORMAL", "TRANSIENT_DISLOCATION"],
-        "entry_thresholds_bps":[100,150,200], "confirmation_seconds":5,
+        "entry_thresholds_bps":[100,150,200,250,300], "confirmation_seconds":5,
         "gross_notional_usd":1000, "max_open_positions":1, "exit_spread_bps":20,
         "max_holding_seconds":86400, "taker_fee_bps":{x:10 for x in pt.EXCHANGES},
         "slippage_bps_per_fill":2, "safety_buffer_bps":10}
@@ -138,6 +138,13 @@ def test_continuous_five_second_confirmation_enters_on_net_edge(tmp_path):
     assert p.raw_entry_edge_bps==pytest.approx(200)
     assert p.net_entry_edge_bps==pytest.approx(142)
     assert p.threshold_bps==100
+    signal=e.signal_observations[-1]
+    assert signal.raw_executable_edge_bps==pytest.approx(200)
+    assert signal.estimated_fees_bps==40 and signal.estimated_slippage_bps==8
+    assert signal.safety_buffer_bps==10 and signal.net_executable_edge_bps==pytest.approx(142)
+    assert signal.signal_duration_seconds==pytest.approx(5)
+    assert signal.cross_exchange_timestamp_skew_ms==0 and signal.max_quote_age_ms==0
+    assert signal.first_level_capacity_usd>0 and signal.rejection_reason==""
 
 
 def test_disconnect_resets_confirmation_timer(tmp_path):

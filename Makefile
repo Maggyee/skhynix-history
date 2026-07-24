@@ -1,4 +1,4 @@
-.PHONY: quick corrected-history analysis-15m gate-regime-15m high-threshold-walk-forward duration-fix collect-1m monitor-1m report-live-1m paper-bbo test
+.PHONY: quick corrected-history analysis-15m gate-regime-15m high-threshold-walk-forward higher-bps-study duration-fix collect-1m monitor-1m report-live-1m paper-bbo test
 quick:
 	mkdir -p data/raw data/normalized reports/charts logs
 	uv run --extra dev skhynix-research quick --start 2026-06-10T05:50:00Z --end now
@@ -17,6 +17,10 @@ gate-regime-15m:
 high-threshold-walk-forward:
 	mkdir -p reports_high_threshold_walk_forward
 	uv run skhynix-research high-threshold-walk-forward
+
+higher-bps-study:
+	mkdir -p reports_higher_bps_study/charts
+	uv run skhynix-research higher-bps-study
 
 duration-fix: corrected-history
 
