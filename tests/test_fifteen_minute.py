@@ -1,7 +1,9 @@
 import pandas as pd
 import pytest
+import re
 
 import skhynix_research.fifteen_minute as fm
+from skhynix_research.report_15m import write_15m_report
 
 
 def _funding():
@@ -112,3 +114,65 @@ def test_funding_global_generation_is_idempotent(monkeypatch,tmp_path):
     first=fm.build_funding_global_outputs(_funding(),charts=False)[1]
     second=fm.build_funding_global_outputs(_funding(),charts=False)[1]
     pd.testing.assert_frame_equal(first,second)
+
+
+def _report_artifacts(tmp_path):
+    r15=tmp_path/"reports_15m"; reports=tmp_path/"reports"; data=tmp_path/"data/normalized"
+    (r15/"charts").mkdir(parents=True);(reports/"charts").mkdir(parents=True);data.mkdir(parents=True)
+    pd.DataFrame([{"price_15m_global_start":"2026-06-10T06:00:00.123456Z","price_15m_global_end":"2026-06-10T07:00:00Z","strict_common_bar_count":4}]).to_csv(r15/"global_common_window_15m.csv",index=False)
+    pd.DataFrame([{"exchange":ex,"first_open_time":"2026-06-10T06:00:00Z","last_open_time":"2026-06-10T06:45:00Z","coverage_percent":100,"strict_common_bar_count":4} for ex in fm.EXCHANGES]).to_csv(r15/"exchange_coverage_15m.csv",index=False)
+    price=[]
+    for i,(a,b) in enumerate(__import__('itertools').combinations(fm.EXCHANGES,2)):
+        price.append({"pair":f"{a}/{b}","exchange_A":a,"exchange_B":b,"median_signed_spread_bps":i+.25,"p95_abs_bps":100-i,"p99_abs_bps":110-i,"max_abs_bps":120-i,"percent_A_higher":50+i})
+    pd.DataFrame(price).to_csv(r15/"pairwise_price_summary_global_15m.csv",index=False)
+    events=pd.DataFrame([{"base_event_id":f"e{i}","pair":"binance/gate" if i%2 else "binance/okx","threshold_bps":20,"comparison_quality":"STRICT_NATIVE_15M_BARS","duration_minutes":15*(i+1),"status":"COMPLETED"} for i in range(12)])
+    events.to_csv(r15/"base_spread_events_global_five_15m.csv",index=False)
+    pd.DataFrame([{"group_type":"ALL","group_value":"ALL_OBSERVED","event_count_total":12,"median_minutes":90,"p90_minutes":165,"p95_minutes":180,"max_observed_minutes":180,"ratio_le_60m":.3333,"ratio_le_240m":1,"ratio_gt_1440m":0}]).to_csv(r15/"event_duration_summary_20bps_15m.csv",index=False)
+    joint=[]
+    for cost in [20,40,80]:
+        for i,p in enumerate(pd.DataFrame(price).pair): joint.append({"pair":p,"cost_bps":cost,"event_count":10,"win_rate":.5-i*.01,"total_net_bps":1000-cost*10-i,"median_net_bps":5-cost})
+    pd.DataFrame(joint).to_csv(r15/"joint_strategy_summary_15m.csv",index=False)
+    funding=[]
+    for i,(a,b) in enumerate(__import__('itertools').permutations(fm.EXCHANGES,2)):
+        funding.append({"long_exchange":a,"short_exchange":b,"cashflow_10000usd":200-i,"cashflow_per_day_10000usd":2-i/100,"simple_apr_not_compounded":.2-i/1000,"data_quality":"OK"})
+    pd.DataFrame(funding).to_csv(reports/"funding_global_matrix.csv",index=False)
+    pd.DataFrame([{"exchange":ex,"global_start":"2026-06-10T08:00:00.123Z","global_end":"2026-06-11T08:00:00Z"} for ex in fm.EXCHANGES]).to_csv(reports/"funding_global_common_window.csv",index=False)
+    rows=[]
+    for ex_i,ex in enumerate(fm.EXCHANGES):
+        for i,t in enumerate(pd.date_range("2026-06-10T06:00Z",periods=4,freq="15min")):
+            rows.append({"exchange":ex,"price_type":"trade","open_time":t,"close":100+ex_i+i/10})
+    pd.DataFrame(rows).to_parquet(data/"aligned_prices_15m.parquet",index=False)
+    f=[]
+    for ex_i,ex in enumerate(fm.EXCHANGES): f.append({"exchange":ex,"funding_time":pd.Timestamp("2026-06-11T00:00Z")+pd.Timedelta(seconds=ex_i),"funding_rate":.001+ex_i*.0001})
+    pd.DataFrame(f).to_parquet(data/"funding_events.parquet",index=False)
+    # The production funding heatmap is an already-generated input image.
+    (reports/"charts/funding_global_common_window_matrix.png").write_bytes(b"not-a-real-png")
+    return r15
+
+
+def test_decision_report_structure_and_offline_assets(tmp_path):
+    r15=_report_artifacts(tmp_path);path=write_15m_report(tmp_path,r15);doc=path.read_text()
+    assert "SKHYNIX 五家交易所 15分钟历史研究" in doc
+    assert "<pre" not in doc and "&lt;h1&gt;" not in doc
+    assert "2026-06-10 06:00:00 UTC" in doc and ".123456" not in doc
+    assert "20bps成本前5名" in doc and "40bps成本前5名" in doc and "80bps成本前5名" in doc
+    assert "历史15分钟成交收盘价不是当时可执行BBO" in doc
+    assert re.findall(r'<img[^>]+src="(.*?)"',doc)
+    assert all(src.startswith("data:image/png;base64,") for src in re.findall(r'<img[^>]+src="(.*?)"',doc))
+    assert not re.search(r'<(?:link|script)[^>]+(?:href|src)="https?://',doc)
+    assert not re.search(r'(?i)(?:>|\s)(nan|[+-]?inf)(?:<|\s)',doc)
+
+
+def test_report_top_n_matches_csv_and_is_idempotent(tmp_path):
+    r15=_report_artifacts(tmp_path);path=write_15m_report(tmp_path,r15);first=path.read_bytes()
+    doc=first.decode(); assert "200.00" in doc and "100.00 bps" in doc
+    blocks=re.findall(r'<h3>(?:20|40|80)bps成本前5名</h3>(.*?)(?=<h3>|</section>)',doc,re.S)
+    assert len(blocks)==3
+    assert all(re.search(r"<tbody>(.*?)</tbody>",block,re.S).group(1).count("<tr>") <= 5 for block in blocks)
+    write_15m_report(tmp_path,r15);assert path.read_bytes()==first
+
+
+def test_report_survives_missing_csv(tmp_path):
+    r15=_report_artifacts(tmp_path);(r15/"joint_strategy_summary_15m.csv").unlink()
+    path=write_15m_report(tmp_path,r15);doc=path.read_text()
+    assert path.exists() and "无可用数据" in doc and "历史代理策略，不是实盘回测" in doc

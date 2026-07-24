@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import base64
-import html
 import itertools
 import json
 import math
@@ -27,6 +25,7 @@ from .config import ROOT, load_config
 from .download import ENDPOINTS, candle, discover_all, ms
 from .history_quality import detailed_session
 from .http import CachedHTTP
+from .report_15m import write_15m_report
 
 EXCHANGES = ("binance", "bitget", "gate", "hyperliquid", "okx")
 BAR = pd.Timedelta(minutes=15)
@@ -298,7 +297,7 @@ def _price_summaries(aligned, start, end):
         s=z.abs_spread_bps
         rows.append({"analysis_scope":"ALL_FIVE_TRADE_CLOSE_15M", "pair":f"{a}/{b}", "exchange_A":a, "exchange_B":b,
             "global_start":start, "global_end":end, "bar_count":len(z), "comparison_price_type":"trade_close_15m",
-            "mean_abs_bps":s.mean(), "p95_abs_bps":s.quantile(.95), "p99_abs_bps":s.quantile(.99), "max_abs_bps":s.max(),
+            "mean_abs_bps":s.mean(), "median_signed_spread_bps":z.spread_bps.median(), "p95_abs_bps":s.quantile(.95), "p99_abs_bps":s.quantile(.99), "max_abs_bps":s.max(),
             "percent_A_higher":100*(z.spread_bps>0).mean(), "data_quality":"strict_all_five_timestamp_intersection"})
     return pd.DataFrame(rows)
 
@@ -359,7 +358,7 @@ def _charts(aligned, summary, events, start, end):
     plt.title("Native 15m spread-event duration ECDF");plt.tight_layout();plt.savefig(R15/"charts/event_duration_ecdf_15m.png",dpi=150);plt.close()
     plt.figure(figsize=(7,6)); mat=pd.DataFrame(np.nan,index=EXCHANGES,columns=EXCHANGES)
     for r in summary.itertuples(): mat.loc[r.exchange_A,r.exchange_B]=mat.loc[r.exchange_B,r.exchange_A]=r.p95_abs_bps
-    sns.heatmap(mat,annot=True,fmt=".1f",cmap="YlOrRd");plt.title("ALL_FIVE_TRADE_CLOSE_15M P95 absolute spread (bps)");plt.tight_layout();plt.savefig(R15/"charts/pairwise_p95_heatmap_15m.png",dpi=150);plt.close()
+    sns.heatmap(mat,annot=True,fmt=".2f",cmap="YlOrRd");plt.title("五家统一窗口：15分钟成交收盘价绝对价差P95（bps）\n非BBO；可能受低流动性、陈旧成交价和指数定义差异影响");plt.tight_layout();plt.savefig(R15/"charts/pairwise_p95_heatmap_15m.png",dpi=150);plt.close()
 
 
 def _matrix_chart(matrix, value, path, title, start, end):
@@ -466,11 +465,10 @@ def _write_15m_report(start,end,funding_start,funding_end,summary,joint_summary,
 
 
 def _write_15m_html(text,summary,joint):
-    imgs=[]
-    for p in sorted((R15/"charts").glob("*.png")):
-        imgs.append(f"<h2>{p.stem}</h2><img src='data:image/png;base64,{base64.b64encode(p.read_bytes()).decode()}'>")
-    doc=f"<!doctype html><html lang='zh-CN'><meta charset='utf-8'><title>SKHYNIX 15m unified analysis</title><style>body{{max-width:1250px;margin:30px auto;font:15px system-ui;line-height:1.55}}img{{max-width:100%}}table{{border-collapse:collapse;display:block;overflow:auto;font-size:12px}}td,th{{border:1px solid #ddd;padding:4px}}pre{{white-space:pre-wrap}}.warn{{background:#fff3cd;padding:12px}}</style><h1>PRICE_FUNDING_15M_GLOBAL_WINDOW</h1><div class='warn'>ALL_FIVE_TRADE_CLOSE_15M；原生闭合15m桶；历史K线不是BBO。</div><pre>{html.escape(text)}</pre><h2>Pair summary</h2>{summary.to_html(index=False)}<h2>Joint strategy</h2>{joint.to_html(index=False)}{''.join(imgs)}</html>"
-    (R15/"quick_report_15m.html").write_text(doc)
+    # ``text``, ``summary`` and ``joint`` remain in the signature for backwards
+    # compatibility.  The renderer intentionally reloads the persisted artifacts,
+    # making the HTML reproducible and allowing missing-file degradation tests.
+    return write_15m_report(ROOT, R15)
 
 
 def run_fifteen_minute_analysis(start=ANALYSIS_START,end=None):
