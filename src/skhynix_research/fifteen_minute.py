@@ -86,7 +86,14 @@ def _download_okx_15m(start, end, symbol):
         while True:
             params = {"instId":inst, "bar":"15m", "limit":100}
             if cursor is not None: params["after"] = cursor
-            data, raw = h.get(ENDPOINTS["okx"] + ep, params); arr = data.get("data", [])
+            # The cursorless page is a moving view of the latest candles.  Its
+            # URL and parameters are otherwise stable, so it must bypass the
+            # permanent request cache.  Cursor pages are immutable history and
+            # deliberately retain the normal cache behaviour.
+            latest_page = cursor is None
+            data, raw = h.get(ENDPOINTS["okx"] + ep, params, force_refresh=latest_page)
+            retrieved_at = h.last_retrieved_at
+            arr = data.get("data", [])
             if not arr: break
             for x in arr:
                 t = int(x[0])
@@ -94,7 +101,12 @@ def _download_okx_15m(start, end, symbol):
                 if ms(start) <= t < ms(end) and confirmed:
                     v = x[5] if typ == "trade" and len(x)>5 else None
                     q = x[7] if typ == "trade" and len(x)>7 else None
-                    rows.append(_native(candle("okx", symbol, typ, [x[0],x[1],x[2],x[3],x[4],v,q,t+899_999], ep, raw, "array")))
+                    row = _native(candle("okx", symbol, typ, [x[0],x[1],x[2],x[3],x[4],v,q,t+899_999], ep, raw, "array"))
+                    # Preserve provenance from the actual response rather than
+                    # assigning a second, synthetic timestamp during parsing.
+                    if retrieved_at is not None:
+                        row["retrieved_at"] = retrieved_at
+                    rows.append(row)
             oldest = min(int(x[0]) for x in arr)
             if oldest <= ms(start) or str(oldest) == str(cursor): break
             cursor = str(oldest)
@@ -130,21 +142,36 @@ NATIVE_DOWNLOADERS = {
 def download_native_prices_15m(start, end) -> pd.DataFrame:
     start = max(pd.Timestamp(start), ANALYSIS_START).ceil("15min"); closed_end = _closed_end(end)
     if start >= closed_end: raise ValueError("No complete 15m bars in requested interval")
-    meta, errors = discover_all(); all_rows = []
+    meta, errors = discover_all(); fresh_rows = []; refreshed_exchanges = set()
     old_path = ROOT/"data/normalized/prices_15m.parquet"
-    if old_path.exists(): all_rows.extend(pd.read_parquet(old_path).to_dict("records"))
+    old = pd.read_parquet(old_path) if old_path.exists() else pd.DataFrame()
     for ex in EXCHANGES:
         try:
             symbol = meta.loc[(meta.exchange==ex)&(meta.status!="failed"), "resolved_symbol"].iloc[0]
-            all_rows.extend(NATIVE_DOWNLOADERS[ex](start, closed_end, symbol))
+            exchange_rows = NATIVE_DOWNLOADERS[ex](start, closed_end, symbol)
+            if exchange_rows:
+                fresh_rows.extend(exchange_rows)
+                refreshed_exchanges.add(ex)
         except Exception as exc:
             errors[f"{ex}_15m"] = str(exc)
-    out = pd.DataFrame(all_rows)
-    if out.empty: raise RuntimeError(f"No native 15m prices downloaded: {errors}")
-    out["open_time"] = pd.to_datetime(out.open_time, utc=True)
-    out["close_time"] = pd.to_datetime(out.close_time, utc=True)
-    out = out[(out.open_time>=start)&(out.open_time<closed_end)&(out.close>0)]
-    out = out[(out.open_time.dt.minute%15==0)&(out.open_time.dt.second==0)]
+    fresh = pd.DataFrame(fresh_rows)
+    if fresh.empty: raise RuntimeError(f"No native 15m prices downloaded: {errors}")
+    fresh["open_time"] = pd.to_datetime(fresh.open_time, utc=True)
+    fresh["close_time"] = pd.to_datetime(fresh.close_time, utc=True)
+    fresh = fresh[(fresh.open_time>=start)&(fresh.open_time<closed_end)&(fresh.close>0)]
+    fresh = fresh[(fresh.open_time.dt.minute%15==0)&(fresh.open_time.dt.second==0)]
+    if old.empty:
+        out = fresh
+    else:
+        old = old.copy()
+        old["open_time"] = pd.to_datetime(old.open_time, utc=True)
+        old["close_time"] = pd.to_datetime(old.close_time, utc=True)
+        outside_refresh_window = (old.open_time < start) | (old.open_time >= closed_end)
+        # If one exchange failed, retain its prior in-window rows instead of
+        # turning a transient API failure into destructive data loss.
+        keep_old = outside_refresh_window | ~old.exchange.isin(refreshed_exchanges)
+        out = pd.concat([old.loc[keep_old], fresh], ignore_index=True)
+    out = out[(out.close>0)&(out.open_time.dt.minute%15==0)&(out.open_time.dt.second==0)]
     out = out.sort_values(["exchange","price_type","open_time"]).drop_duplicates(["exchange","symbol","price_type","open_time"], keep="last")
     out.to_parquet(old_path, index=False)
     (ROOT/"data/raw/download_errors_15m.json").write_text(json.dumps(errors, ensure_ascii=False, indent=2))
