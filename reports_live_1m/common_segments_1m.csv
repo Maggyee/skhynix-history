@@ -1,0 +1,2 @@
+analysis_scope,segment_id,start,end_exclusive,last_open_time,duration_minutes,common_bar_count,expected_bar_count,all_five_coverage_pct,internal_missing_minutes
+LIVE_ALL_FIVE_TRADE_CLOSE_1M_STRICT_COMMON_100PCT,COMMON_1M_0001,2026-07-23 13:17:00+00:00,2026-07-24 01:22:00+00:00,2026-07-24 01:21:00+00:00,725,725,725,100.0,0

@@ -9,6 +9,7 @@ from .reporting import analyze_all, generate_reports
 from .history_audit import audit_history_coverage
 from .fifteen_minute import run_fifteen_minute_analysis
 from .live_1m import collect_once, run_forever, build_monitor
+from .live_1m_report import generate_live_1m_report
 
 def setup():
     for p in ["data/raw","data/normalized","reports/charts","logs"]:(ROOT/p).mkdir(parents=True,exist_ok=True)
@@ -32,6 +33,7 @@ def main(argv=None):
     m15=sub.add_parser("analysis-15m");m15.add_argument("--start",default="2026-06-10T06:00:00Z");m15.add_argument("--end",default="now")
     live=sub.add_parser("collect-1m");live.add_argument("--forever",action="store_true");live.add_argument("--lookback-minutes",type=int,default=5);live.add_argument("--poll-seconds",type=int,default=60);live.add_argument("--grace-seconds",type=int,default=8)
     sub.add_parser("monitor-1m")
+    sub.add_parser("report-live-1m")
     args=ap.parse_args(argv)
     if args.cmd=="collect-1m":
         if args.forever:
@@ -40,6 +42,9 @@ def main(argv=None):
         print(runs[["exchange","price_type","rows_received","success","error"]].to_string(index=False));print(json.dumps(status,ensure_ascii=False));return 0 if status["healthy_trade_exchanges"] else 1
     if args.cmd=="monitor-1m":
         monitor,status=build_monitor();print(monitor.to_string(index=False));print(json.dumps(status,ensure_ascii=False));return 0 if status["healthy"] else 1
+    if args.cmd=="report-live-1m":
+        result,summary,html=generate_live_1m_report();window=result["window"].iloc[0]
+        print(f"1m common={window.global_start} to {window.global_end_exclusive}; coverage={window.all_five_coverage_pct:.1f}%; reports={summary}, {html}");return 0
     if args.cmd=="discover":
         m,e=discover_all();print(m[["exchange","resolved_symbol","status","listing_time","contract_type"]].to_string(index=False));return 0 if (m.status!="failed").any() else 1
     start=parse_utc(args.start); end=end_value(args.end)

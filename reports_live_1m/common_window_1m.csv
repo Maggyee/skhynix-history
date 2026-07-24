@@ -1,0 +1,2 @@
+analysis_scope,selection_rule,global_start,global_end_exclusive,last_open_time,duration_minutes,all_five_common_bars,expected_bars,all_five_coverage_pct,internal_missing_minutes,available_common_segments,selected_segment_id
+LIVE_ALL_FIVE_TRADE_CLOSE_1M_STRICT_COMMON_100PCT,LONGEST_CONTIGUOUS_ALL_FIVE_TRADE_CLOSE_1M_100PCT,2026-07-23 13:17:00+00:00,2026-07-24 01:22:00+00:00,2026-07-24 01:21:00+00:00,725,725,725,100.0,0,1,COMMON_1M_0001

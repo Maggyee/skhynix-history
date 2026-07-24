@@ -28,8 +28,14 @@ uv run skhynix-research collect-1m --forever
 
 # 检查每个平台覆盖率、缺口、最新延迟和健康状态
 uv run skhynix-research monitor-1m
+
+# 生成只含五家连续共同覆盖率 100% 区间的新 1m 报告
+uv run skhynix-research report-live-1m
 ```
 
 `data/live_1m/collection_runs.csv` 是逐轮采集账本，`monitor.csv` 是各平台/价格
 类型的滚动 24 小时覆盖快照，`status.json` 汇总五家 `trade` 数据是否按规律运行。
 原始响应按“平台/UTC 日期”归档为 NDJSON，避免长期运行产生海量小文件。
+
+实时统计报告输出到 `reports_live_1m/`。它只分析五家原生 `trade close 1m`
+最长连续严格交集；不填充缺失分钟、不跨缺口、不混用 mark/index，也不包含资金费率。
