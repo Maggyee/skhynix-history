@@ -41,6 +41,8 @@ def main(argv=None):
     live=sub.add_parser("collect-1m");live.add_argument("--forever",action="store_true");live.add_argument("--lookback-minutes",type=int,default=5);live.add_argument("--funding-lookback-hours",type=int,default=24);live.add_argument("--poll-seconds",type=int,default=60);live.add_argument("--grace-seconds",type=int,default=8)
     sub.add_parser("monitor-1m")
     sub.add_parser("report-live-1m")
+    q1=sub.add_parser("study-quantile-1m")
+    q1.add_argument("--output-dir",type=Path,default=ROOT/"reports_1m_quantile_mean_reversion")
     bbo=sub.add_parser("collect-bbo");bbo.add_argument("--duration-seconds",type=float,default=None)
     paper=sub.add_parser("paper-bbo");paper.add_argument("--duration-seconds",type=float,default=None)
     args=ap.parse_args(argv)
@@ -61,6 +63,11 @@ def main(argv=None):
     if args.cmd=="report-live-1m":
         result,summary,html=generate_live_1m_report();window=result["window"].iloc[0]
         print(f"1m common={window.global_start} to {window.global_end_exclusive}; coverage={window.all_five_coverage_pct:.1f}%; reports={summary}, {html}");return 0
+    if args.cmd=="study-quantile-1m":
+        from .quantile_mean_reversion_1m import run_study
+        result=run_study(report_dir=args.output_dir)
+        print(f"events={len(result['events'])}; output={result['output_dir']}; gate_start={result['prepared'].gate_start}")
+        return 0
     if args.cmd=="discover":
         m,e=discover_all();print(m[["exchange","resolved_symbol","status","listing_time","contract_type"]].to_string(index=False));return 0 if (m.status!="failed").any() else 1
     if args.cmd=="high-threshold-walk-forward":
