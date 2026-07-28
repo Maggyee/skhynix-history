@@ -46,20 +46,27 @@ uv run skhynix-research report-live-1m
 ## 公共实时 BBO 采集器
 
 五家平台各自保持一条独立公共 WebSocket，自动心跳、指数退避重连，并把服务端原始
-frame 写入 `data/raw/live_bbo/`。标准化的可执行 BBO 以 5 分钟 Parquet part 写入
+frame 以 gzip NDJSON 写入 `data/raw/live_bbo/`。标准化的可执行 BBO 以 5 分钟 Zstd
+Parquet part 写入
 `data/live_bbo/bbo/date=.../exchange=.../`，字段包括 bid/ask、两侧 size、交易所与
 本机接收时间、序列号及序列号来源。
 
 启动时会获取并归档五家产品 metadata；原生 size、合约单位/乘数、标准化标的数量和
-USD notional 会同时保存。无法解析单位的平台标记为 `SIZE_UNIT_UNKNOWN`。
+USD notional 会同时保存。每条 v2 BBO 带 `schema_version` 和
+`metadata_snapshot_id`，对应的时间版本化元数据保存在
+`data/live_bbo/metadata_history/`。无法解析单位的平台标记为 `SIZE_UNIT_UNKNOWN`；
+旧 schema 可以统一读取，但没有同期元数据证据时始终是 `CAPACITY_UNKNOWN`。
 
 ```bash
-uv run skhynix-research collect-bbo
-uv run skhynix-research collect-bbo --duration-seconds 600
+uv run skhynix-research collect-live-bbo
+uv run skhynix-research collect-live-bbo --duration-seconds 600
+uv run skhynix-research audit-bbo-capacity
 ```
 
 本模块只包含公共市场数据。它不读取 API key、不连接账户或私有频道，不包含仓位、
 PnL、策略门槛或真实下单代码。健康快照写入 `data/live_bbo/health/latest.csv`。
+每日合并、raw 保留期、磁盘水位、近期全量和历史 250ms/1s 降采样均由
+`live_bbo` 存储配置控制；登记在 `candidate_event_windows.parquet` 的窗口不会降采样。
 
 ## BBO paper trading
 
@@ -76,5 +83,12 @@ uv run skhynix-research paper-bbo
 uv run skhynix-research paper-bbo --duration-seconds 600
 ```
 
-ledger 和日报位于 `data/paper_bbo/`。没有导入真实已结算 funding event 的结果明确标为
+`paper-bbo` 同时启动五家 BBO、`FundingSettlementService` 和统一健康监控。服务通过
+公共接口回补最近 48 小时并持续轮询已结算资金费率，以确定性 ID 幂等调用
+`PaperEngine.on_funding_event`。游标、事件日志和健康状态位于
+`data/paper_bbo/funding_service/`，统一运行报告位于 `reports_runtime_health/`。
+
+ledger 和日报位于 `data/paper_bbo/`。严格只计入
+`opened_at < settled_at < closed_at` 的结算；尚未平仓时立即累计，延迟事件可补记到
+已平仓交易且只记一次。没有导入真实已结算 funding event 的结果明确标为
 `PRICE_ONLY_BEFORE_FUNDING`，不称为完整套利净收益。本模块没有认证、账户或真实下单路径。

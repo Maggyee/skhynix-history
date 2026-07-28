@@ -1,4 +1,4 @@
-.PHONY: quick corrected-history analysis-15m gate-regime-15m high-threshold-walk-forward duration-fix collect-1m monitor-1m report-live-1m paper-bbo test
+.PHONY: quick corrected-history analysis-15m gate-regime-15m high-threshold-walk-forward duration-fix collect-1m monitor-1m report-live-1m collect-live-bbo funding-clock audit-bbo-capacity paper-bbo test
 quick:
 	mkdir -p data/raw data/normalized reports/charts logs
 	uv run --extra dev skhynix-research quick --start 2026-06-10T05:50:00Z --end now
@@ -31,6 +31,15 @@ report-live-1m:
 
 paper-bbo:
 	uv run skhynix-research paper-bbo
+
+collect-live-bbo:
+	uv run skhynix-research collect-live-bbo
+
+funding-clock:
+	uv run skhynix-research collect-funding-clock
+
+audit-bbo-capacity:
+	uv run skhynix-research audit-bbo-capacity
 
 test:
 	uv run --extra dev pytest -q

@@ -7,5 +7,13 @@ logs/
 codex-run.log
 data/live_1m/
 data/raw/live_1m/
+data/live_bbo/bbo/
+data/live_bbo/health/
+data/live_bbo/metadata/
+data/live_bbo/metadata_history/
+data/raw/live_bbo/
+data/live_funding_clock/
+data/raw/live_funding_clock/
+data/paper_bbo/
 
 .DS_Store

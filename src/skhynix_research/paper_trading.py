@@ -21,8 +21,8 @@ import pandas as pd
 
 from .config import ROOT, load_config
 from .gate_regime_15m import causal_regime_for_time
-from .live_bbo import (BBO, BBOStorage, CollectorMonitor, EXCHANGES, SIZE_UNIT_OK,
-    WebSocketVenue, adapters, fetch_product_metadata)
+from .live_bbo import (BBO, BBOStorage, CAPACITY_VALID, CollectorMonitor, EXCHANGES, SIZE_UNIT_OK,
+    WebSocketVenue, adapters, fetch_product_metadata, refresh_product_metadata)
 
 ALLOWED_ENTRY_REGIMES = frozenset({"NORMAL", "TRANSIENT_DISLOCATION"})
 PRICE_ONLY_BEFORE_FUNDING = "PRICE_ONLY_BEFORE_FUNDING"
@@ -127,6 +127,7 @@ class Trade:
     pnl_scope: str
     holding_seconds: float
     close_reason: str
+    funding_event_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -202,23 +203,52 @@ class PaperEngine:
         self.quotes[quote.exchange] = quote
         self.evaluate(quote.receive_ts)
 
-    def on_funding_event(self, event: FundingEvent):
+    def funding_event_relevant(self, exchange: str, settled_at) -> bool:
+        settled = _utc(settled_at)
+        for position in self.positions:
+            if _utc(position.opened_at) < settled and exchange in {
+                    position.long_exchange, position.short_exchange}:
+                return True
+        for trade in self.trades:
+            if (_utc(trade.opened_at) < settled < _utc(trade.closed_at)
+                    and exchange in {trade.long_exchange, trade.short_exchange}):
+                return True
+        return False
+
+    @staticmethod
+    def _funding_delta(exchange: str, long_exchange: str, short_exchange: str,
+                       quantity: float, mark_price: float, rate: float) -> float:
+        if exchange == long_exchange:return -quantity * mark_price * rate
+        if exchange == short_exchange:return quantity * mark_price * rate
+        return 0.
+
+    def on_funding_event(self, event: FundingEvent) -> bool:
         if event.event_id in self.processed_funding_event_ids:
-            return
-        if event.exchange not in EXCHANGES or not np.isfinite(event.rate) or event.mark_price <= 0:
+            return False
+        if event.exchange not in EXCHANGES or not np.isfinite(event.rate):
             raise ValueError("invalid settled funding event")
         settled = _utc(event.settled_at)
+        relevant = self.funding_event_relevant(event.exchange, settled)
+        if relevant and (not np.isfinite(event.mark_price) or event.mark_price <= 0):
+            raise ValueError("relevant funding event requires positive settlement mark")
         for position in self.positions:
             if not _utc(position.opened_at) < settled:
                 continue
-            if event.exchange == position.long_exchange:
-                position.funding_pnl_usd -= position.quantity * event.mark_price * event.rate
+            delta = self._funding_delta(event.exchange, position.long_exchange,
+                position.short_exchange, position.quantity, event.mark_price, event.rate)
+            if delta or event.exchange in {position.long_exchange, position.short_exchange}:
+                position.funding_pnl_usd += delta
                 position.funding_event_ids.append(event.event_id)
-            elif event.exchange == position.short_exchange:
-                position.funding_pnl_usd += position.quantity * event.mark_price * event.rate
-                position.funding_event_ids.append(event.event_id)
+        for trade in self.trades:
+            if not _utc(trade.opened_at) < settled < _utc(trade.closed_at):continue
+            delta = self._funding_delta(event.exchange, trade.long_exchange,
+                trade.short_exchange, trade.quantity, event.mark_price, event.rate)
+            if delta or event.exchange in {trade.long_exchange, trade.short_exchange}:
+                trade.funding_pnl_usd += delta;trade.net_pnl_usd += delta
+                trade.pnl_scope = SETTLED_FUNDING_INCLUDED;trade.funding_event_ids.append(event.event_id)
         self.processed_funding_event_ids.add(event.event_id)
         self.save()
+        return True
 
     def _block(self, reason: str):
         self.blocked_counts[reason] = self.blocked_counts.get(reason, 0) + 1
@@ -267,6 +297,8 @@ class PaperEngine:
         for quote in (long, short):
             if quote.size_unit_status != SIZE_UNIT_OK:
                 reasons.append(f"size_unit_unknown:{quote.exchange}")
+            elif quote.capacity_status != CAPACITY_VALID:
+                reasons.append(f"capacity_unknown:{quote.exchange}")
         if reasons:
             return reasons
         long_qty = (long.normalized_underlying_ask_qty if entering
@@ -388,7 +420,7 @@ class PaperEngine:
             position.estimated_total_cost_bps, position.net_entry_edge_bps, exit_spread, gross,
             position.funding_pnl_usd, position.entry_long_fee_usd,
             position.entry_short_fee_usd, exit_long_fee, exit_short_fee, fee_pnl, slippage,
-            net, scope, held, reason))
+            net, scope, held, reason, list(position.funding_event_ids)))
         self.positions.remove(position)
         self.save()
 
@@ -446,30 +478,48 @@ been ingested and persisted for its open holding interval.
 
 
 async def run_paper_bbo(duration_seconds: float | None = None):
+    from .funding_service import FundingSettlementService
+    from .runtime_health import generate_runtime_health, monitor_runtime
     cfg = load_config(); live = cfg["live_bbo"]; paper = cfg["paper_bbo"]
     provider = CausalRegimeProvider.from_csv(ROOT / "reports_15m/gate_causal_regime_labels_15m.csv")
     engine = PaperEngine(paper, live, ROOT / "data", provider)
     metadata = await asyncio.to_thread(fetch_product_metadata, cfg["symbols"])
     collector = CollectorMonitor(live, metadata); monitor = PaperMonitor(collector, engine)
-    storage = BBOStorage(live.get("parquet_flush_seconds", 5), live.get("parquet_batch_rows", 500))
+    storage = BBOStorage(live.get("parquet_flush_seconds", 5),
+        live.get("parquet_batch_rows", 500), settings=live)
+    funding_cfg=cfg.get("funding_settlement_service",{})
+    funding=FundingSettlementService(engine,cfg["symbols"],
+        poll_seconds=funding_cfg.get("poll_seconds",60),
+        backfill_hours=funding_cfg.get("startup_backfill_hours",48))
     stop = asyncio.Event(); loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
         try: loop.add_signal_handler(sig, stop.set)
         except NotImplementedError: pass
-    venues = [WebSocketVenue(spec, cfg["symbols"][name], storage, metadata[name], monitor, live)
+    venues = [WebSocketVenue(spec, cfg["symbols"][name], storage, metadata, monitor, live)
               for name, spec in adapters(cfg["symbols"]).items()]
-    tasks = [asyncio.create_task(storage.run()), asyncio.create_task(storage.run_raw())]
-    tasks += [asyncio.create_task(venue.run(stop)) for venue in venues]
+    storage_tasks = [asyncio.create_task(storage.run(),name="paper-bbo-storage"),
+        asyncio.create_task(storage.run_raw(),name="paper-bbo-raw-storage")]
+    venue_tasks = [asyncio.create_task(venue.run(stop),name=f"paper-bbo-{venue.adapter.exchange}") for venue in venues]
+    metadata_task=asyncio.create_task(refresh_product_metadata(cfg["symbols"],metadata,stop,
+        float(live.get("metadata_refresh_seconds",3600))),name="paper-metadata-refresh")
+    funding_task=asyncio.create_task(funding.run(stop),name="paper-funding-settlements")
+    health_task=asyncio.create_task(monitor_runtime(stop,collector,funding,storage,
+        float(funding_cfg.get("health_interval_seconds",30))),name="paper-runtime-health")
     timer = asyncio.create_task(asyncio.sleep(duration_seconds)) if duration_seconds is not None else None
     try:
         if timer is None: await stop.wait()
         else: await timer; stop.set()
     finally:
-        for task in tasks[2:]: task.cancel()
-        await asyncio.gather(*tasks[2:], return_exceptions=True)
+        stop.set()
+        for task in venue_tasks+[metadata_task]: task.cancel()
+        await asyncio.gather(*venue_tasks,metadata_task,return_exceptions=True)
+        await asyncio.gather(funding_task,health_task,return_exceptions=True)
         await storage.queue.put(None); await storage.raw_queue.put(None)
-        await asyncio.gather(tasks[0], tasks[1])
+        await asyncio.gather(*storage_tasks)
+        await funding.shutdown();await asyncio.to_thread(storage.maintenance)
         collector.save(); engine.save(); generate_daily_report(engine, _utc().date())
+        _,health=generate_runtime_health(collector,funding,storage)
+        print(json.dumps(health["funding_service"],ensure_ascii=False))
     return engine
 
 

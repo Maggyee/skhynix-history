@@ -8,7 +8,8 @@ import pandas as pd
 import pytest
 
 import skhynix_research.paper_trading as pt
-from skhynix_research.live_bbo import BBO, SIZE_UNIT_OK, SIZE_UNIT_UNKNOWN
+from skhynix_research.live_bbo import (BBO, CAPACITY_UNKNOWN, CAPACITY_VALID,
+    SCHEMA_VERSION, SIZE_UNIT_OK, SIZE_UNIT_UNKNOWN)
 
 NOW = pd.Timestamp("2026-07-24T12:00:00Z").to_pydatetime()
 
@@ -20,7 +21,9 @@ def quote(exchange, bid, ask, *, native_size=100, multiplier=1.0, ts=NOW, seq=1,
     ask_qty = native_size * multiplier if usable else float("nan")
     return BBO(exchange, "SKHYNIX", bid, ask, native_size, native_size, ts, ts, seq,
         "native", connection, "CONTRACT", multiplier if usable else float("nan"),
-        bid_qty, ask_qty, bid_qty * bid, ask_qty * ask, status, f"{connection}:{seq}")
+        bid_qty, ask_qty, bid_qty * bid, ask_qty * ask, status, f"{connection}:{seq}",
+        SCHEMA_VERSION,"metadata-test",CAPACITY_VALID if usable else CAPACITY_UNKNOWN,
+        "" if usable else SIZE_UNIT_UNKNOWN)
 
 
 def settings(**overrides):
@@ -121,6 +124,36 @@ def test_funding_settlement_boundary_and_direction(tmp_path):
     previous=position.funding_pnl_usd
     e.on_funding_event(pt.FundingEvent("short","gate",after,.002,102))
     assert position.funding_pnl_usd==previous
+
+
+def test_negative_funding_reverses_long_and_short_cashflows(tmp_path):
+    e=engine(tmp_path);position,opened=open_position(e);after=(opened+timedelta(minutes=1)).isoformat()
+    e.on_funding_event(pt.FundingEvent("negative-long","binance",after,-.001,100))
+    long_delta=position.funding_pnl_usd
+    e.on_funding_event(pt.FundingEvent("negative-short","gate",after,-.001,100))
+    assert long_delta>0 and position.funding_pnl_usd==pytest.approx(0)
+
+
+def test_non_position_exchange_does_not_change_funding(tmp_path):
+    e=engine(tmp_path);position,opened=open_position(e)
+    e.on_funding_event(pt.FundingEvent("other","okx",(opened+timedelta(minutes=1)).isoformat(),.001,float("nan")))
+    assert position.funding_pnl_usd==0 and not position.funding_event_ids
+
+
+def test_delayed_event_updates_closed_trade_once_and_excludes_close_boundary(tmp_path):
+    e=engine(tmp_path,max_holding_seconds=1);_,opened=open_position(e)
+    close=opened+timedelta(seconds=2)
+    e.quotes["binance"]=quote("binance",98,99,ts=close,seq=3)
+    e.quotes["gate"]=quote("gate",104,105,ts=close,seq=3);e.evaluate(close)
+    trade=e.trades[0];before=trade.net_pnl_usd
+    between=opened+timedelta(seconds=1)
+    event=pt.FundingEvent("delayed","binance",between.isoformat(),.001,100)
+    assert e.on_funding_event(event) is True
+    assert trade.funding_pnl_usd<0 and trade.net_pnl_usd<before
+    after_once=trade.net_pnl_usd;assert e.on_funding_event(event) is False
+    assert trade.net_pnl_usd==after_once
+    equal_close=pt.FundingEvent("at-close","binance",trade.closed_at,.001,float("nan"))
+    e.on_funding_event(equal_close);assert trade.net_pnl_usd==after_once
 
 
 def test_single_tick_never_enters(tmp_path):

@@ -41,12 +41,21 @@ def main(argv=None):
     live=sub.add_parser("collect-1m");live.add_argument("--forever",action="store_true");live.add_argument("--lookback-minutes",type=int,default=5);live.add_argument("--funding-lookback-hours",type=int,default=24);live.add_argument("--poll-seconds",type=int,default=60);live.add_argument("--grace-seconds",type=int,default=8)
     sub.add_parser("monitor-1m")
     sub.add_parser("report-live-1m")
-    bbo=sub.add_parser("collect-bbo");bbo.add_argument("--duration-seconds",type=float,default=None)
+    for name in ("collect-bbo","collect-live-bbo"):
+        bbo=sub.add_parser(name);bbo.add_argument("--duration-seconds",type=float,default=None)
+    sub.add_parser("collect-funding-clock")
+    sub.add_parser("audit-bbo-capacity")
     paper=sub.add_parser("paper-bbo");paper.add_argument("--duration-seconds",type=float,default=None)
     args=ap.parse_args(argv)
-    if args.cmd=="collect-bbo":
+    if args.cmd in {"collect-bbo","collect-live-bbo"}:
         from .live_bbo import run
         run(args.duration_seconds);return 0
+    if args.cmd=="collect-funding-clock":
+        from .funding_clock import collect_once
+        frame=collect_once();print(frame.to_string(index=False));return 0 if frame.status.eq("VALID").all() else 1
+    if args.cmd=="audit-bbo-capacity":
+        from .bbo_capacity_backfill import audit_capacity_backfill
+        frame=audit_capacity_backfill();print(frame.to_string(index=False));return 0
     if args.cmd=="paper-bbo":
         from .paper_trading import run
         run(args.duration_seconds);return 0

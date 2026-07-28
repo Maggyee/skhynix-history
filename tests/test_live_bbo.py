@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import gzip
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -94,19 +95,23 @@ def test_raw_writer_is_decoupled_and_parquet_is_traceable(tmp_path):
     async def scenario():
         storage=lb.BBOStorage(.01,1,tmp_path/"raw",tmp_path/"bbo")
         await storage.raw("binance",NOW,"c",'{"x":1}')
-        assert not list((tmp_path/"raw").rglob("*.ndjson"))
+        assert not list((tmp_path/"raw").rglob("*.ndjson.gz"))
         raw_task=asyncio.create_task(storage.run_raw());bbo_task=asyncio.create_task(storage.run())
         await storage.put(quote("binance",1));await storage.put(quote("binance",2))
         await storage.raw_queue.put(None);await storage.queue.put(None)
         await raw_task;await bbo_task
     asyncio.run(scenario())
-    raw=next((tmp_path/"raw").rglob("*.ndjson"))
-    assert json.loads(raw.read_text())["raw_message"]=='{"x":1}'
+    raw=next((tmp_path/"raw").rglob("*.ndjson.gz"))
+    with gzip.open(raw,"rt",encoding="utf-8") as handle:
+        assert json.loads(handle.read())["raw_message"]=='{"x":1}'
     frame=pd.concat(pd.read_parquet(p) for p in (tmp_path/"bbo").rglob("*.parquet"))
     required={"native_bid_size","native_ask_size","native_size_unit","contract_multiplier",
               "normalized_underlying_bid_qty","normalized_underlying_ask_qty","bid_notional_usd",
-              "ask_notional_usd","raw_message_id","sequence_source"}
+              "ask_notional_usd","raw_message_id","sequence_source","schema_version",
+              "metadata_snapshot_id","capacity_status","capacity_error_reason"}
     assert required<=set(frame.columns) and len(frame)==2
+    assert frame.schema_version.eq(lb.SCHEMA_VERSION).all()
+    assert frame.capacity_status.eq(lb.CAPACITY_VALID).all()
 
 
 def test_metadata_startup_fetch_archives_raw_and_snapshot(tmp_path,monkeypatch):
@@ -116,8 +121,27 @@ def test_metadata_startup_fetch_archives_raw_and_snapshot(tmp_path,monkeypatch):
     result=lb.fetch_product_metadata(SYMBOLS,tmp_path,Client())
     assert set(result)==set(lb.EXCHANGES)
     assert all(x.usable for x in result.values())
-    assert len(list((tmp_path/"raw").glob("*.json")))==5
+    assert len(list((tmp_path/"raw").rglob("*.json")))==5
     assert (tmp_path/"latest.parquet").exists() and (tmp_path/"latest.json").exists()
+    history=lb.read_metadata_history(tmp_path/"history")
+    assert len(history)==5 and history.metadata_snapshot_id.nunique()==5
+
+
+def test_v1_schema_reads_together_and_capacity_fails_closed():
+    legacy=pd.DataFrame({"exchange":["gate"],"bid":[100.],"ask":[101.],
+        "bid_size":[10.],"ask_size":[11.],"bid_notional_usd":[1000.],
+        "ask_notional_usd":[1111.],"size_unit_status":[lb.SIZE_UNIT_OK]})
+    result=lb.normalize_bbo_schema(legacy)
+    assert result.schema_version.iloc[0]==1
+    assert result.native_bid_size.iloc[0]==10
+    assert result.capacity_status.iloc[0]==lb.CAPACITY_UNKNOWN
+    assert result.capacity_error_reason.iloc[0]=="LEGACY_SCHEMA_MISSING_TRACEABLE_METADATA"
+
+
+def test_metadata_id_is_attached_to_every_new_quote():
+    q=quote("gate")
+    assert q.metadata_snapshot_id
+    assert q.capacity_status==lb.CAPACITY_VALID and not q.capacity_error_reason
 
 
 def test_crossed_or_nonpositive_bbo_is_rejected():
